@@ -1,0 +1,16 @@
+appId: com.autoai.desktop
+productName: AutoAI
+directories:
+  output: release
+files:
+  - out/**/*
+  - package.json
+mac:
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  category: public.app-category.developer-tools
+  hardenedRuntime: true
+  gatekeeperAssess: false

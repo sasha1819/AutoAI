@@ -1,0 +1,33 @@
+{
+  /* The suites reach into both processes - main services with their
+   * repository interfaces, renderer stores and pure helpers - so this
+   * project spans both and carries the DOM lib the store tests need for
+   * the fake `window.autoai` bridge.
+   *
+   * It exists because without it `test/**` was in no tsconfig at all: a
+   * fake repository could claim `implements ProjectRepository`, fall
+   * behind the interface, and still pass, because nothing calling the
+   * missing method was ever written. Adding a store method and its test
+   * in the same change hides that perfectly. */
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@shared/*": ["./src/shared/*"]
+    }
+  },
+  "include": ["test/**/*.ts", "src/**/*.ts", "src/**/*.tsx"]
+}

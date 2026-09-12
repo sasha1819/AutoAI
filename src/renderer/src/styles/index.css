@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-surface text-ink antialiased font-sans;
+  }
+}
+
+/*
+ * Space Grotesk / IBM Plex Sans / IBM Plex Mono are not vendored yet.
+ * `tailwind.config.js`'s font stacks fall back to system faces until they
+ * are - that's deliberate, not a bug to route around with a Google Fonts
+ * `<link>`. `index.html`'s CSP has no allowance for fonts.googleapis.com,
+ * and the app's own "no network call" claim would stop being true the
+ * moment a face loaded from one.
+ *
+ * To add them for real: drop the .woff2 files under
+ * src/renderer/src/assets/fonts/ and add @font-face rules here that point
+ * at them by relative path, so Vite bundles them same-origin and the CSP
+ * never has to change.
+ */
