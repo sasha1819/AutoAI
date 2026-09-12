@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Nothing in the committed test suite launches a real browser (every
+      # main-process test injects a fake AgentRunner/BrowserDriver/etc.), so
+      # downloading Playwright's ~200MB of browser binaries here would only
+      # slow the job down for no coverage gained.
+      - run: npm ci
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+
+      - run: npm run verify
+
+      - run: npm run build

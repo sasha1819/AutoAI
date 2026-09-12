@@ -17,6 +17,12 @@ That means `node_modules` in this repo belongs to **macOS** (darwin-arm64 native
 
 If `npm test` fails with `Cannot find module @rollup/rollup-linux-*`, that is **not** the npm optional-dependency bug the error message suggests. It means the command is running on Linux against a macOS install. Do not "fix" it by deleting `node_modules` — that destroys the Mac's working install and it cannot be restored through the bridge. Run the test on the Mac instead.
 
+## Continuous integration
+
+`.github/workflows/ci.yml` runs `npm run verify` (typecheck → lint → test, chained — the same gate described below) plus `npm run build` on every push and PR against `main`, on a plain `ubuntu-latest` GitHub-hosted runner.
+
+This is a **different environment than the bridge-vs-Mac split above** — don't apply that caution here and don't apply this one there. The two-machine trap is specifically about one `node_modules` directory being shared between a Linux bridge and a macOS install; a GitHub Actions runner does its own clean `npm ci` from scratch, so there's no native-binary mismatch regardless of which OS the runner uses. Nothing in the committed test suite launches a real Electron window or a real browser (every service test injects a fake), which is why a plain Linux runner is sufficient — no `xvfb`, no downloaded Playwright browsers.
+
 ## Electron process model — what hot-reloads and what doesn't
 
 `npm run dev` hot-reloads the **renderer** only. The **main process** (`src/main/**`) and **preload** (`src/preload/**`) do not.
