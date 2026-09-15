@@ -4,6 +4,7 @@ import { AuthLayout } from '../components/AuthLayout';
 import { FormField } from '../components/FormField';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { describeAuthError } from '../lib/authErrors';
+import { validateEmailFormat, validateRequired } from '../lib/authValidation';
 import { useSessionStore } from '../state/useSessionStore';
 
 export function LoginScreen(): JSX.Element {
@@ -13,9 +14,20 @@ export function LoginScreen(): JSX.Element {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  /* Errors only show once a field has actually been touched - a blank form
+     on first paint shouldn't greet you with two red messages before you've
+     typed anything. */
+  const [touched, setTouched] = useState({ email: false, password: false });
+
+  const emailError = validateEmailFormat(email);
+  const passwordError = validateRequired(password, 'password');
+  const formValid = !emailError && !passwordError;
 
   async function handleSubmit(event: FormEvent): Promise<void> {
     event.preventDefault();
+    setTouched({ email: true, password: true });
+    if (!formValid) return;
+
     setSubmitting(true);
     await login({ email, password });
     setSubmitting(false);
@@ -37,6 +49,8 @@ export function LoginScreen(): JSX.Element {
             autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            onBlur={() => setTouched((t) => ({ ...t, email: true }))}
+            error={touched.email ? emailError : null}
             required
           />
           <FormField
@@ -46,6 +60,8 @@ export function LoginScreen(): JSX.Element {
             autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            onBlur={() => setTouched((t) => ({ ...t, password: true }))}
+            error={touched.password ? passwordError : null}
             required
           />
 

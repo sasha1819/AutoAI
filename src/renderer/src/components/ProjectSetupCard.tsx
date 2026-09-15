@@ -158,6 +158,15 @@ export function ProjectSetupCard({ project }: { readonly project: Project }): JS
             </div>
           )}
 
+          {shownResult.baseUrlMismatchNote && (
+            <div
+              role="alert"
+              className="rounded-md border border-accent-deep/40 bg-accent-soft px-3.5 py-2.5 text-caption leading-relaxed text-accent-deep"
+            >
+              {shownResult.baseUrlMismatchNote}
+            </div>
+          )}
+
           {shownResult.installResults.length > 0 && (
             <div className="flex flex-col gap-2">
               <span className="font-mono text-nano font-semibold uppercase tracking-wide text-muted">Install</span>

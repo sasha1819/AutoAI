@@ -1,9 +1,9 @@
 import { useEffect } from 'react';
-import { Link } from 'react-router-dom';
 import type { Project, ScanErrorCode, SuggestedFlow } from '@shared/ipc-contract';
 import { useClaudeConnectionStore } from '../state/useClaudeConnectionStore';
 import { useScanStore } from '../state/useScanStore';
 import { useTestPlanStore } from '../state/useTestPlanStore';
+import { ClaudeConnectPrompt } from './ClaudeConnectPrompt';
 import { PrimaryButton } from './PrimaryButton';
 
 const SCAN_ERROR_COPY: Record<ScanErrorCode, string> = {
@@ -124,15 +124,7 @@ export function ProjectScanCard({ project, onCaseCreated }: ProjectScanCardProps
         </PrimaryButton>
       </div>
 
-      {!connected && (
-        <p className="text-caption text-quiet">
-          Claude isn&apos;t connected yet.{' '}
-          <Link to="/settings" className="text-accent-deep underline underline-offset-2 hover:text-accent-deep-hover">
-            Connect it in Settings
-          </Link>
-          , then come back here.
-        </p>
-      )}
+      {!connected && <ClaudeConnectPrompt />}
 
       {lastError && (
         <div

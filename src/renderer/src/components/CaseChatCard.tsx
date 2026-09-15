@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 import type { CaseGenerationErrorCode, Project } from '@shared/ipc-contract';
 import { useCaseChatStore } from '../state/useCaseChatStore';
 import { useClaudeConnectionStore } from '../state/useClaudeConnectionStore';
 import { useTestPlanStore } from '../state/useTestPlanStore';
+import { ClaudeConnectPrompt } from './ClaudeConnectPrompt';
 import { PrimaryButton } from './PrimaryButton';
 
 const CASE_GENERATION_ERROR_COPY: Record<CaseGenerationErrorCode, string> = {
@@ -80,15 +80,7 @@ export function CaseChatCard({ project, onCaseCreated }: CaseChatCardProps): JSX
         </p>
       </div>
 
-      {!connected && (
-        <p className="text-caption text-quiet">
-          Claude isn&apos;t connected yet.{' '}
-          <Link to="/settings" className="text-accent-deep underline underline-offset-2 hover:text-accent-deep-hover">
-            Connect it in Settings
-          </Link>
-          , then come back here.
-        </p>
-      )}
+      {!connected && <ClaudeConnectPrompt />}
 
       <form
         className="flex flex-col gap-3 sm:flex-row sm:items-start"

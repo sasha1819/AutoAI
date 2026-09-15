@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { DetachedProcessHandle, ProcessSpawner, RunToCompletionResult } from '../src/main/services/ProjectSetupService';
-import { extractStartUrl, ProjectSetupService } from '../src/main/services/ProjectSetupService';
+import { buildBaseUrlMismatchNote, extractStartUrl, ProjectSetupService } from '../src/main/services/ProjectSetupService';
 import { ProjectService } from '../src/main/services/ProjectService';
 import type { ProjectRepository } from '../src/main/services/ProjectStore';
 import type { ScanRepository } from '../src/main/services/ScanStore';
@@ -142,6 +142,26 @@ describe('extractStartUrl', () => {
   });
 });
 
+describe('buildBaseUrlMismatchNote', () => {
+  it('names both the expected path and the resolved URL when both are known', () => {
+    const note = buildBaseUrlMismatchNote('/taaza', 'http://localhost:8000');
+    expect(note).toContain('/taaza');
+    expect(note).toContain('http://localhost:8000');
+  });
+
+  it('is null when there is no expected path', () => {
+    expect(buildBaseUrlMismatchNote(null, 'http://localhost:8000')).toBeNull();
+  });
+
+  it('is null when no start URL was resolved', () => {
+    expect(buildBaseUrlMismatchNote('/taaza', null)).toBeNull();
+  });
+
+  it('is null when neither is known', () => {
+    expect(buildBaseUrlMismatchNote(null, null)).toBeNull();
+  });
+});
+
 describe('ProjectSetupService.run', () => {
   let projects: FakeProjectRepository;
   let scans: FakeScanRepository;
@@ -186,7 +206,7 @@ describe('ProjectSetupService.run', () => {
   });
 
   it('returns COMMAND_REJECTED, running nothing, when every proposed command fails the allowlist', async () => {
-    scans.set(project.id, baseScan({ installCommands: ['rm -rf /'], startCommand: null, startCommandExplanation: null }));
+    scans.set(project.id, baseScan({ installCommands: ['rm -rf /'], startCommand: null, startCommandExplanation: null, expectedBasePath: null }));
     const spawner = new FakeProcessSpawner();
     const service = makeService(spawner);
 
@@ -205,6 +225,7 @@ describe('ProjectSetupService.run', () => {
         installCommands: ['npm install', 'rm -rf /', 'npm run build'],
         startCommand: null,
         startCommandExplanation: null,
+        expectedBasePath: null,
       }),
     );
     const spawner = new FakeProcessSpawner();
@@ -236,6 +257,7 @@ describe('ProjectSetupService.run', () => {
         installCommands: ['npm install', 'npm run build'],
         startCommand: null,
         startCommandExplanation: null,
+        expectedBasePath: null,
       }),
     );
     const spawner = new FakeProcessSpawner({
@@ -252,7 +274,7 @@ describe('ProjectSetupService.run', () => {
   });
 
   it('returns INSTALL_FAILED when the spawn call itself throws', async () => {
-    scans.set(project.id, baseScan({ installCommands: ['npm install'], startCommand: null, startCommandExplanation: null }));
+    scans.set(project.id, baseScan({ installCommands: ['npm install'], startCommand: null, startCommandExplanation: null, expectedBasePath: null }));
     const spawner = new FakeProcessSpawner({ 'npm install': new Error('spawn EPERM') });
     const service = makeService(spawner);
 
@@ -264,7 +286,7 @@ describe('ProjectSetupService.run', () => {
   it('starts the start command once installs all pass, tracks the pid, and auto-fills baseUrl on a recognized pattern', async () => {
     scans.set(
       project.id,
-      baseScan({ installCommands: [], startCommand: 'php -S localhost:8000 -t .', startCommandExplanation: null }),
+      baseScan({ installCommands: [], startCommand: 'php -S localhost:8000 -t .', startCommandExplanation: null, expectedBasePath: null }),
     );
     const spawner = new FakeProcessSpawner();
     const service = makeService(spawner);
@@ -279,8 +301,56 @@ describe('ProjectSetupService.run', () => {
     expect(projects.find(project.id)?.baseUrl).toBe('http://localhost:8000');
   });
 
+  it('reports a base-path mismatch when the scan found one and a start URL was resolved', async () => {
+    scans.set(
+      project.id,
+      baseScan({
+        installCommands: [],
+        startCommand: 'php -S localhost:8000 -t .',
+        startCommandExplanation: null,
+        expectedBasePath: '/taaza',
+      }),
+    );
+    const service = makeService(new FakeProcessSpawner());
+
+    const result = await service.run(project.id);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.result.baseUrlMismatchNote).toContain('/taaza');
+    expect(result.result.baseUrlMismatchNote).toContain('http://localhost:8000');
+  });
+
+  it('does not report a mismatch when the scan found no expected base path', async () => {
+    scans.set(
+      project.id,
+      baseScan({ installCommands: [], startCommand: 'php -S localhost:8000 -t .', startCommandExplanation: null, expectedBasePath: null }),
+    );
+    const service = makeService(new FakeProcessSpawner());
+
+    const result = await service.run(project.id);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.result.baseUrlMismatchNote).toBeNull();
+  });
+
+  it('does not report a mismatch when no start URL could be resolved, even with an expected path', async () => {
+    scans.set(
+      project.id,
+      baseScan({ installCommands: [], startCommand: 'npm run dev', startCommandExplanation: null, expectedBasePath: '/taaza' }),
+    );
+    const service = makeService(new FakeProcessSpawner());
+
+    const result = await service.run(project.id);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.result.baseUrlMismatchNote).toBeNull();
+  });
+
   it('does not auto-fill baseUrl when the start command has no recognized pattern', async () => {
-    scans.set(project.id, baseScan({ installCommands: [], startCommand: 'npm run dev', startCommandExplanation: null }));
+    scans.set(project.id, baseScan({ installCommands: [], startCommand: 'npm run dev', startCommandExplanation: null, expectedBasePath: null }));
     const service = makeService(new FakeProcessSpawner());
 
     const result = await service.run(project.id);
@@ -295,7 +365,7 @@ describe('ProjectSetupService.run', () => {
   it('reports a crash-on-boot within the grace period and does not track the process', async () => {
     scans.set(
       project.id,
-      baseScan({ installCommands: [], startCommand: 'php -S localhost:8000 -t .', startCommandExplanation: null }),
+      baseScan({ installCommands: [], startCommand: 'php -S localhost:8000 -t .', startCommandExplanation: null, expectedBasePath: null }),
     );
     const spawner = new FakeProcessSpawner({}, { 'php -S localhost:8000 -t .': true });
     const service = makeService(spawner);
@@ -319,7 +389,7 @@ describe('ProjectSetupService.run', () => {
   it('rejects a disallowed start command without running it, and leaves nothing tracked', async () => {
     scans.set(
       project.id,
-      baseScan({ installCommands: [], startCommand: 'node server.js', startCommandExplanation: null }),
+      baseScan({ installCommands: [], startCommand: 'node server.js', startCommandExplanation: null, expectedBasePath: null }),
     );
     const spawner = new FakeProcessSpawner();
     const service = makeService(spawner);
@@ -339,7 +409,7 @@ describe('ProjectSetupService.run', () => {
   it('skips the start command entirely when an install failed', async () => {
     scans.set(
       project.id,
-      baseScan({ installCommands: ['npm install'], startCommand: 'npm run dev', startCommandExplanation: null }),
+      baseScan({ installCommands: ['npm install'], startCommand: 'npm run dev', startCommandExplanation: null, expectedBasePath: null }),
     );
     const spawner = new FakeProcessSpawner({ 'npm install': { exitCode: 1, stdout: '', stderr: 'boom' } });
     const service = makeService(spawner);
@@ -355,7 +425,7 @@ describe('ProjectSetupService.run', () => {
   it('returns ALREADY_RUNNING for a project with a tracked process, until stop() is called', async () => {
     scans.set(
       project.id,
-      baseScan({ installCommands: [], startCommand: 'php -S localhost:8000 -t .', startCommandExplanation: null }),
+      baseScan({ installCommands: [], startCommand: 'php -S localhost:8000 -t .', startCommandExplanation: null, expectedBasePath: null }),
     );
     const spawner = new FakeProcessSpawner();
     const service = makeService(spawner);
@@ -372,7 +442,7 @@ describe('ProjectSetupService.run', () => {
   it('stop() kills the tracked process and is a no-op when nothing is tracked', async () => {
     scans.set(
       project.id,
-      baseScan({ installCommands: [], startCommand: 'php -S localhost:8000 -t .', startCommandExplanation: null }),
+      baseScan({ installCommands: [], startCommand: 'php -S localhost:8000 -t .', startCommandExplanation: null, expectedBasePath: null }),
     );
     const spawner = new FakeProcessSpawner();
     const service = makeService(spawner);
@@ -385,13 +455,13 @@ describe('ProjectSetupService.run', () => {
   it('stopAll stops every tracked process, freeing every project to run again', async () => {
     scans.set(
       project.id,
-      baseScan({ installCommands: [], startCommand: 'php -S localhost:8000 -t .', startCommandExplanation: null }),
+      baseScan({ installCommands: [], startCommand: 'php -S localhost:8000 -t .', startCommandExplanation: null, expectedBasePath: null }),
     );
     const secondProject = baseProject({ id: 'proj-2' });
     projects.add(secondProject);
     scans.set(
       secondProject.id,
-      baseScan({ installCommands: [], startCommand: 'php -S localhost:8001 -t .', startCommandExplanation: null }),
+      baseScan({ installCommands: [], startCommand: 'php -S localhost:8001 -t .', startCommandExplanation: null, expectedBasePath: null }),
     );
 
     const spawner = new FakeProcessSpawner();

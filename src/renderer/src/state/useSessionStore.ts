@@ -34,6 +34,12 @@ interface SessionStoreState {
   logout: () => Promise<void>;
   setRole: (role: UserRole) => Promise<void>;
   clearError: () => void;
+  /** Dev-only escape hatch: force `stage` directly, bypassing stageFor's
+   *  real hasProfile/session computation. Only ever called from
+   *  DevScreenSwitcher, which is itself compiled out of a production build
+   *  by `import.meta.env.DEV` - this action existing in the store doesn't
+   *  make it reachable, since nothing in the shipped UI ever calls it. */
+  devSetStage: (stage: BootstrapStage) => void;
 }
 
 function stageFor(hasProfile: boolean, session: SessionState | null): BootstrapStage {
@@ -97,4 +103,6 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
   },
 
   clearError: () => set({ lastError: null }),
+
+  devSetStage: (stage) => set({ stage }),
 }));

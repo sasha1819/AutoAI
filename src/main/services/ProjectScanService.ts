@@ -27,8 +27,9 @@ const SETUP_PROPOSAL_SCHEMA: Record<string, unknown> = {
     installCommands: { type: 'array', items: { type: 'string' } },
     startCommand: { type: ['string', 'null'] },
     startCommandExplanation: { type: ['string', 'null'] },
+    expectedBasePath: { type: ['string', 'null'] },
   },
-  required: ['installCommands', 'startCommand', 'startCommandExplanation'],
+  required: ['installCommands', 'startCommand', 'startCommandExplanation', 'expectedBasePath'],
   additionalProperties: false,
 };
 
@@ -142,7 +143,7 @@ function buildPrompt(project: Project, selectors: SelectorScanResult): string {
     '1. `description` - a plain-language paragraph (roughly 3-6 sentences) describing the project\'s structure and purpose, written for someone who has not opened the code yet.',
     '2. `suggestedFlows` - a handful (aim for 3-8) of realistic end-to-end test flows a person could run against this project. Each needs a short `name`, a one-sentence `description`, ordered plain-language `steps`, and - only when you actually found a matching real selector, either below or while reading the code yourself - a `targetSelectors` list of the exact id/name/data-testid/for/aria-label values a test could target. Never invent a selector you did not actually see. Also produce a `script` for each flow, per the rules below.',
     '3. `environmentNotes` - short strings (a sentence or less each) for anything you noticed while reading that a test runner would need in order to actually exercise this project: a database dependency, a required environment variable, a third-party API key, that kind of thing. An empty array is correct if you saw nothing like that.',
-    '4. `setup` - what it would actually take to install this project\'s dependencies and start it, or null if you are not confident enough to propose one. Only ever propose a command you can ground in a real file you read: a `composer.json` means `composer install`; a `package.json` with a `dev` or `start` script means `npm run <that script>`; plain `.php` files with no framework marker mean `php -S localhost:8000 -t .`; that kind of reasoning. `installCommands` is an ordered list of shell commands (empty array if nothing needs installing). `startCommand` is the one command that actually runs the project, or null if you cannot confidently identify one - in that case `startCommandExplanation` says why in a sentence, otherwise it is null. Never invent a command that does not match what you actually found.',
+    '4. `setup` - what it would actually take to install this project\'s dependencies and start it, or null if you are not confident enough to propose one. Only ever propose a command you can ground in a real file you read: a `composer.json` means `composer install`; a `package.json` with a `dev` or `start` script means `npm run <that script>`; plain `.php` files with no framework marker mean `php -S localhost:8000 -t .`; that kind of reasoning. `installCommands` is an ordered list of shell commands (empty array if nothing needs installing). `startCommand` is the one command that actually runs the project, or null if you cannot confidently identify one - in that case `startCommandExplanation` says why in a sentence, otherwise it is null. `expectedBasePath` is a literal sub-path (like `/taaza`) you actually found hardcoded somewhere in the project\'s own code - a verification link, a base-URL constant, a config file - where the app expects to be served, as distinct from whatever host:port it runs on. Null unless you genuinely saw one; do not infer it from the folder or project name. Never invent a command or a path that does not match what you actually found.',
     '',
     'Rules for each flow\'s `script` (a machine-executable subset of its `steps`):',
     ...SCRIPT_GROUNDING_RULES.map((rule) => `- ${rule}`),
@@ -209,14 +210,17 @@ function parseSetupProposal(raw: unknown): ProjectSetupProposal | null {
   const installCommandsRaw = row['installCommands'];
   const startCommand = row['startCommand'];
   const startCommandExplanation = row['startCommandExplanation'];
+  const expectedBasePath = row['expectedBasePath'];
 
   if (!Array.isArray(installCommandsRaw) || !installCommandsRaw.every((c) => typeof c === 'string')) return null;
   if (startCommand !== null && typeof startCommand !== 'string') return null;
   if (startCommandExplanation !== null && typeof startCommandExplanation !== 'string') return null;
+  if (expectedBasePath !== null && typeof expectedBasePath !== 'string') return null;
 
   return {
     installCommands: installCommandsRaw as string[],
     startCommand,
     startCommandExplanation,
+    expectedBasePath,
   };
 }

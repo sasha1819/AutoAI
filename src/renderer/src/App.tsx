@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { Route, Routes } from 'react-router-dom';
+import { DevScreenSwitcher } from './components/DevScreenSwitcher';
 import { ImportScreen } from './screens/ImportScreen';
 import { LoginScreen } from './screens/LoginScreen';
 import { OnboardingScreen } from './screens/OnboardingScreen';
@@ -12,6 +13,7 @@ import { ReportsScreen } from './screens/ReportsScreen';
 import { RunsScreen } from './screens/RunsScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { WelcomeScreen } from './screens/WelcomeScreen';
+import type { BootstrapStage } from './state/useSessionStore';
 import { useSessionStore } from './state/useSessionStore';
 
 function LoadingScreen(): JSX.Element {
@@ -39,6 +41,15 @@ export function App(): JSX.Element {
     void bootstrap();
   }, [bootstrap]);
 
+  return (
+    <>
+      {renderStage(stage)}
+      <DevScreenSwitcher />
+    </>
+  );
+}
+
+function renderStage(stage: BootstrapStage): JSX.Element {
   switch (stage) {
     case 'loading':
       return <LoadingScreen />;

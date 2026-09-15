@@ -185,6 +185,46 @@ describe('ProjectScanService.run', () => {
     expect(scanRepository.get(project.id)).toEqual(result.result);
   });
 
+  it('round-trips a setup proposal, including expectedBasePath, when the agent supplies one', async () => {
+    const structuredOutput = {
+      ...VALID_STRUCTURED_OUTPUT,
+      setup: {
+        installCommands: [],
+        startCommand: 'php -S localhost:8000 -t .',
+        startCommandExplanation: null,
+        expectedBasePath: '/taaza',
+      },
+    };
+    const runner = new FakeAgentRunner({ ok: true, text: 'whatever', structuredOutput });
+    const service = makeService(runner);
+
+    const result = await service.run(project.id);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.result.setup).toEqual(structuredOutput.setup);
+  });
+
+  it('treats a setup proposal missing expectedBasePath as malformed, same as any other missing required field', async () => {
+    const structuredOutput = {
+      ...VALID_STRUCTURED_OUTPUT,
+      setup: {
+        installCommands: [],
+        startCommand: 'php -S localhost:8000 -t .',
+        startCommandExplanation: null,
+        // expectedBasePath deliberately omitted
+      },
+    };
+    const runner = new FakeAgentRunner({ ok: true, text: 'whatever', structuredOutput });
+    const service = makeService(runner);
+
+    const result = await service.run(project.id);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe('SCAN_FAILED');
+  });
+
   it('getLast returns what run() persisted, and null before any scan has run', async () => {
     const service = makeService(new FakeAgentRunner({ ok: true, text: '', structuredOutput: VALID_STRUCTURED_OUTPUT }));
 

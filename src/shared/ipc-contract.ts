@@ -359,6 +359,14 @@ export interface ProjectSetupProposal {
   readonly installCommands: readonly string[];
   readonly startCommand: string | null;
   readonly startCommandExplanation: string | null;
+  /** A literal sub-path Claude found hardcoded in the project's own code
+   *  (a verification link, a base-URL constant) - e.g. "/taaza". Null unless
+   *  it actually found one; never guessed. Distinct from the host:port in
+   *  `startCommand` - AutoAI's own start commands can only ever serve at
+   *  the root of a host:port, so this is what ProjectSetupService compares
+   *  against to detect (and honestly report) a mismatch, not something it
+   *  can act on. */
+  readonly expectedBasePath: string | null;
 }
 
 export interface ProjectScanResult {
@@ -468,6 +476,12 @@ export interface SetupRunResultData {
   /** Set when a recognized start-command pattern (e.g. `php -S host:port`)
    *  let AutoAI fill in `project.baseUrl` automatically. */
   readonly baseUrlAutoFilled: string | null;
+  /** Set when the proposal's `expectedBasePath` doesn't match what AutoAI
+   *  can actually serve - a deterministic comparison, not a judgment call,
+   *  so it's computed here rather than asked of Claude. AutoAI never
+   *  attempts to reconcile the mismatch (there is no general way to make
+   *  `php -S` serve at an arbitrary sub-path); this only ever reports it. */
+  readonly baseUrlMismatchNote: string | null;
 }
 
 export type SetupErrorCode = 'PROJECT_NOT_FOUND' | 'NO_PROPOSAL' | 'COMMAND_REJECTED' | 'INSTALL_FAILED' | 'ALREADY_RUNNING';

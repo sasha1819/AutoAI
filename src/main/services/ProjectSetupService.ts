@@ -146,6 +146,17 @@ export function extractStartUrl(command: string): string | null {
   return null;
 }
 
+/** A deterministic comparison, not a judgment call - so it's computed here,
+ *  not asked of Claude. Fires only when both sides are known: an
+ *  `expectedBasePath` Claude actually found, and a `baseUrlAutoFilled` this
+ *  service actually resolved. There is no general way to make `php -S` (or
+ *  any allowlisted start command) serve at an arbitrary sub-path, so this
+ *  only ever reports the mismatch - it never attempts to reconcile it. */
+export function buildBaseUrlMismatchNote(expectedBasePath: string | null, baseUrlAutoFilled: string | null): string | null {
+  if (!expectedBasePath || !baseUrlAutoFilled) return null;
+  return `This project expects to be served at a path ending in "${expectedBasePath}", but AutoAI can only start it at the root of ${baseUrlAutoFilled} - links the app generates itself (email verification, redirects) will point to the wrong place until it's served at the expected path.`;
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -189,7 +200,7 @@ export class ProjectSetupService {
       return { ok: false, error: 'NO_PROPOSAL' };
     }
 
-    const { installCommands, startCommand } = proposal;
+    const { installCommands, startCommand, expectedBasePath } = proposal;
 
     if (isFullyRejected(installCommands)) {
       return {
@@ -229,8 +240,9 @@ export class ProjectSetupService {
     const installsAllPassed = installResults.every((r) => r.status === 'passed');
 
     const { start, baseUrlAutoFilled } = await this.resolveStart(project, startCommand, installsAllPassed);
+    const baseUrlMismatchNote = buildBaseUrlMismatchNote(expectedBasePath, baseUrlAutoFilled);
 
-    return { ok: true, result: { installResults, start, baseUrlAutoFilled } };
+    return { ok: true, result: { installResults, start, baseUrlAutoFilled, baseUrlMismatchNote } };
   }
 
   private async resolveStart(
