@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { AgentRunner, AgentRunOptions, AgentRunOutcome } from '../src/main/services/AgentRunner';
 import type { AssistantToolDeps, CaseGenerator, ScanRunner } from '../src/main/services/AssistantService';
 import { AssistantService, buildAssistantTools } from '../src/main/services/AssistantService';
+import type { McpServerRepository } from '../src/main/services/McpServerStore';
 import type { ProjectRepository } from '../src/main/services/ProjectStore';
 import type { RunRepository } from '../src/main/services/RunStore';
-import type { CaseGenerationResult, Project, RunRecord, ScanRunResult } from '../src/shared/ipc-contract';
+import type { CaseGenerationResult, McpServerEntry, Project, RunRecord, ScanRunResult } from '../src/shared/ipc-contract';
 
 class FakeProjectRepository implements ProjectRepository {
   private projects: Project[] = [];
@@ -76,6 +77,22 @@ class FakeCaseGenerator implements CaseGenerator {
   }
 }
 
+class FakeMcpServerRepository implements McpServerRepository {
+  constructor(private servers: McpServerEntry[] = []) {}
+
+  list(): McpServerEntry[] {
+    return this.servers;
+  }
+
+  add(server: McpServerEntry): void {
+    this.servers.push(server);
+  }
+
+  remove(id: string): void {
+    this.servers = this.servers.filter((s) => s.id !== id);
+  }
+}
+
 class FakeAgentRunner implements AgentRunner {
   public lastOptions: AgentRunOptions | null = null;
 
@@ -122,6 +139,18 @@ async function toolDeps(overrides: Partial<AssistantToolDeps> = {}): Promise<Ass
     runRepository: new FakeRunRepository(),
     scanRunner: new FakeScanRunner({ ok: true, result: { description: 'x', suggestedFlows: [], environmentNotes: [], environment: [], setup: null, generatedAt: '2026-01-01T00:00:00.000Z' } }),
     caseGenerator: new FakeCaseGenerator({ ok: true, flow: { name: 'Checkout', description: 'desc', steps: ['a'] } }),
+    mcpServerRepository: new FakeMcpServerRepository(),
+    ...overrides,
+  };
+}
+
+function baseMcpServer(overrides: Partial<McpServerEntry> = {}): McpServerEntry {
+  return {
+    id: 'mcp-1',
+    name: 'weather',
+    command: 'npx',
+    args: ['weather-mcp'],
+    env: { API_KEY: 'secret' },
     ...overrides,
   };
 }
@@ -246,6 +275,55 @@ describe('AssistantService.send', () => {
     for (const builtin of ['Read', 'Write', 'Edit', 'Bash']) {
       expect(allowedTools).not.toContain(builtin);
     }
+  });
+
+  it('zero configured MCP servers behaves exactly as before - no extra mcpServers entry or allowedTools wildcard', async () => {
+    const runner = new FakeAgentRunner({ ok: true, text: 'hi', structuredOutput: undefined, sessionId: 'sess-1' });
+    const service = new AssistantService(runner, await toolDeps({ mcpServerRepository: new FakeMcpServerRepository([]) }));
+
+    await service.send('hello', null);
+
+    expect(Object.keys(runner.lastOptions?.mcpServers ?? {})).toEqual(['autoai']);
+    expect(runner.lastOptions?.allowedTools).toEqual([
+      'mcp__autoai__list_projects',
+      'mcp__autoai__list_runs',
+      'mcp__autoai__run_scan',
+      'mcp__autoai__generate_test_case',
+      'mcp__autoai__open_project_setup',
+    ]);
+  });
+
+  it('a configured MCP server gets a stdio mcpServers entry and an mcp__<name>__* allowedTools wildcard', async () => {
+    const runner = new FakeAgentRunner({ ok: true, text: 'hi', structuredOutput: undefined, sessionId: 'sess-1' });
+    const mcpServerRepository = new FakeMcpServerRepository([baseMcpServer()]);
+    const service = new AssistantService(runner, await toolDeps({ mcpServerRepository }));
+
+    await service.send('what is the weather?', null);
+
+    expect(runner.lastOptions?.mcpServers?.['weather']).toEqual({
+      type: 'stdio',
+      command: 'npx',
+      args: ['weather-mcp'],
+      env: { API_KEY: 'secret' },
+    });
+    expect(runner.lastOptions?.allowedTools).toContain('mcp__weather__*');
+    // The built-in server is still present alongside the user's own.
+    expect(runner.lastOptions?.mcpServers?.['autoai']).toBeDefined();
+  });
+
+  it('supports more than one configured MCP server', async () => {
+    const runner = new FakeAgentRunner({ ok: true, text: 'hi', structuredOutput: undefined, sessionId: 'sess-1' });
+    const mcpServerRepository = new FakeMcpServerRepository([
+      baseMcpServer({ id: 'mcp-1', name: 'weather' }),
+      baseMcpServer({ id: 'mcp-2', name: 'search', command: 'uvx', args: [], env: {} }),
+    ]);
+    const service = new AssistantService(runner, await toolDeps({ mcpServerRepository }));
+
+    await service.send('hello', null);
+
+    expect(Object.keys(runner.lastOptions?.mcpServers ?? {}).sort()).toEqual(['autoai', 'search', 'weather']);
+    expect(runner.lastOptions?.allowedTools).toContain('mcp__weather__*');
+    expect(runner.lastOptions?.allowedTools).toContain('mcp__search__*');
   });
 
   it('threads a given sessionId through as `resume`, and omits it when null', async () => {

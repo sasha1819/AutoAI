@@ -7,11 +7,19 @@ import type {
   SessionState,
   UserRole,
 } from '@shared/ipc-contract';
+import { UserRole as UserRoleValues } from '@shared/ipc-contract';
 import { PasswordHasher } from './PasswordHasher';
 import type { ProfileRepository, StoredProfile } from './ProfileStore';
 
 const MIN_PASSWORD_LENGTH = 8;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Onboarding no longer gates entry - a new profile gets a real role from
+ *  the moment it's created rather than sitting in a blocking "pick one"
+ *  screen. Automation Engineer because that's the option the role picker
+ *  already showed pre-selected; the role pill in AppShell's top bar and
+ *  Settings' own role section are how anyone changes it afterward. */
+const DEFAULT_ROLE: UserRole = UserRoleValues.AutomationEngineer;
 
 function toSessionState(profile: StoredProfile): SessionState {
   // Deliberately excludes passwordHash/passwordSalt - this is the only
@@ -21,7 +29,6 @@ function toSessionState(profile: StoredProfile): SessionState {
     name: profile.name,
     email: profile.email,
     role: profile.role,
-    onboardingCompleted: profile.onboardingCompleted,
   };
 }
 
@@ -73,8 +80,7 @@ export class AuthService {
       email: normalizeEmail(input.email),
       passwordHash: hash,
       passwordSalt: salt,
-      role: null,
-      onboardingCompleted: false,
+      role: DEFAULT_ROLE,
       loggedIn: true,
     };
 

@@ -13,7 +13,6 @@ export interface StoredProfile {
   readonly passwordHash: string;
   readonly passwordSalt: string;
   readonly role: UserRole | null;
-  readonly onboardingCompleted: boolean;
   readonly loggedIn: boolean;
 }
 
@@ -73,6 +72,6 @@ export class ProfileStore implements ProfileRepository {
   public setRole(role: UserRole): void {
     const current = this.getRaw();
     if (!current) return;
-    this.save({ ...current, role, onboardingCompleted: true });
+    this.save({ ...current, role });
   }
 }

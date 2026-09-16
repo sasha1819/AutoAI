@@ -9,7 +9,7 @@ import {
   countForArea,
   isSameSelection,
 } from '../lib/testPlanDisplay';
-import { FileTextIcon, FolderIcon, ListChecksIcon, PencilIcon, PlusIcon } from './Icons';
+import { FileTextIcon, FolderIcon, ListChecksIcon, PencilIcon, PlayIcon, PlusIcon } from './Icons';
 
 const ROW_BASE =
   'group flex h-row w-full items-center gap-2 rounded-lg px-2.5 text-left text-ui outline-none transition focus-visible:ring-2 focus-visible:ring-accent/40';
@@ -21,6 +21,8 @@ function Row({
   onSelect,
   icon,
   onRename,
+  onRun,
+  runDisabled,
 }: {
   readonly label: string;
   readonly count: number;
@@ -30,7 +32,12 @@ function Row({
   /** Only real areas can be renamed. "All cases" and "Unsorted" are not
    * folders, so they get no pencil rather than one that refuses. */
   readonly onRename?: () => void;
+  /** Only shown when this area actually has at least one runnable
+   *  (scripted) case - never a button that would just report NO_SCRIPT. */
+  readonly onRun?: () => void;
+  readonly runDisabled?: boolean;
 }): JSX.Element {
+  const hasRowActions = Boolean(onRename) || Boolean(onRun);
   return (
     <div className="relative flex items-center">
       <button
@@ -45,20 +52,33 @@ function Row({
       >
         {icon && <span className={selected ? 'text-ink' : 'text-muted'}>{icon}</span>}
         <span className="min-w-0 flex-1 truncate">{label}</span>
-        <span className={`font-mono text-meta ${onRename ? 'group-hover:invisible' : ''} text-quiet`}>
+        <span className={`font-mono text-meta ${hasRowActions ? 'group-hover:invisible' : ''} text-quiet`}>
           {count}
         </span>
       </button>
-      {onRename && (
-        <button
-          type="button"
-          onClick={onRename}
-          aria-label={`Rename ${label}`}
-          className="invisible absolute right-2 text-muted transition hover:text-ink focus-visible:visible group-hover:visible"
-        >
-          <PencilIcon size={13} />
-        </button>
-      )}
+      <div className="invisible absolute right-2 flex items-center gap-1 focus-within:visible group-hover:visible">
+        {onRun && (
+          <button
+            type="button"
+            onClick={onRun}
+            disabled={runDisabled}
+            aria-label={`Run every case in ${label}`}
+            className="text-muted outline-none transition hover:text-ink focus-visible:visible disabled:pointer-events-none disabled:opacity-50"
+          >
+            <PlayIcon size={12} />
+          </button>
+        )}
+        {onRename && (
+          <button
+            type="button"
+            onClick={onRename}
+            aria-label={`Rename ${label}`}
+            className="text-muted outline-none transition hover:text-ink focus-visible:visible"
+          >
+            <PencilIcon size={13} />
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -124,6 +144,14 @@ interface AreaRailProps {
   readonly onSelect: (selection: AreaSelection) => void;
   readonly onCreateArea: (name: string) => void;
   readonly onRenameArea: (areaId: string, name: string) => void;
+  /** The runnable (scripted) case ids in each area, keyed by area id - an
+   *  area with none here gets no Run affordance at all, never one that
+   *  would just report back "nothing to run." */
+  readonly runnableCaseIdsByArea: Readonly<Record<string, readonly string[]>>;
+  readonly onRunArea: (caseIds: readonly string[]) => void;
+  /** True for the whole duration of any area's batch run - disables every
+   *  Run button so a second batch can't start mid-run. */
+  readonly runningArea: boolean;
 }
 
 /**
@@ -141,6 +169,9 @@ export function AreaRail({
   onSelect,
   onCreateArea,
   onRenameArea,
+  runnableCaseIdsByArea,
+  onRunArea,
+  runningArea,
 }: AreaRailProps): JSX.Element {
   const [adding, setAdding] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -196,6 +227,12 @@ export function AreaRail({
               onSelect={() => onSelect(areaSelection(area.id))}
               icon={<FolderIcon size={15} />}
               onRename={() => setRenamingId(area.id)}
+              onRun={
+                (runnableCaseIdsByArea[area.id]?.length ?? 0) > 0
+                  ? () => onRunArea(runnableCaseIdsByArea[area.id] ?? [])
+                  : undefined
+              }
+              runDisabled={runningArea}
             />
           ),
         )}

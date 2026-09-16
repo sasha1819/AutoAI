@@ -2,13 +2,7 @@ import { create } from 'zustand';
 import type { AuthErrorCode, LoginInput, RegisterInput, SessionState, UserRole } from '@shared/ipc-contract';
 import { autoaiClient } from '../lib/autoaiClient';
 
-export type BootstrapStage =
-  | 'loading'
-  | 'welcome'
-  | 'needs-registration'
-  | 'needs-login'
-  | 'needs-onboarding'
-  | 'ready';
+export type BootstrapStage = 'loading' | 'welcome' | 'needs-registration' | 'needs-login' | 'ready';
 
 interface SessionStoreState {
   stage: BootstrapStage;
@@ -34,18 +28,11 @@ interface SessionStoreState {
   logout: () => Promise<void>;
   setRole: (role: UserRole) => Promise<void>;
   clearError: () => void;
-  /** Dev-only escape hatch: force `stage` directly, bypassing stageFor's
-   *  real hasProfile/session computation. Only ever called from
-   *  DevScreenSwitcher, which is itself compiled out of a production build
-   *  by `import.meta.env.DEV` - this action existing in the store doesn't
-   *  make it reachable, since nothing in the shipped UI ever calls it. */
-  devSetStage: (stage: BootstrapStage) => void;
 }
 
 function stageFor(hasProfile: boolean, session: SessionState | null): BootstrapStage {
   if (!hasProfile) return 'needs-registration';
   if (!session) return 'needs-login';
-  if (!session.onboardingCompleted) return 'needs-onboarding';
   return 'ready';
 }
 
@@ -60,8 +47,8 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       autoaiClient.auth.hasProfile(),
       autoaiClient.session.getCurrent(),
     ]);
-    // A profile already exists (login/onboarding/ready) or Welcome has
-    // already been stepped past this run - stageFor decides the rest.
+    // A profile already exists (login/ready) or Welcome has already been
+    // stepped past this run - stageFor decides the rest.
     // Only a genuinely first launch, with nothing on disk yet, opens on
     // Welcome instead of straight at the registration form.
     const stage = !hasProfile && !get().welcomeDismissed ? 'welcome' : stageFor(hasProfile, session);
@@ -103,6 +90,4 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
   },
 
   clearError: () => set({ lastError: null }),
-
-  devSetStage: (stage) => set({ stage }),
 }));

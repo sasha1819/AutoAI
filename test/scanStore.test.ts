@@ -18,7 +18,7 @@ function scanResult(overrides: Partial<ProjectScanResult> = {}): ProjectScanResu
       { name: 'Guest orders food', description: 'End to end checkout.', steps: ['Open site', 'Checkout'] },
     ],
     environmentNotes: ['Needs a MySQL connection.'],
-    environment: [{ name: 'Node.js', present: true, installHint: null }],
+    environment: [{ name: 'Node.js', present: true, installHint: null, installableBinary: null }],
     setup: null,
     generatedAt: '2026-03-10T09:00:00.000Z',
     ...overrides,
@@ -211,5 +211,45 @@ describe('useScanStore', () => {
     expect(state.lastError).toBeNull();
     expect(state.lastErrorDetail).toBeNull();
     expect(state.transportFailed).toBe(false);
+  });
+
+  describe('markToolInstalled', () => {
+    it('flips the matching checklist row to present without a fresh scan', () => {
+      useScanStore.setState({
+        projectId: 'proj-1',
+        result: scanResult({
+          environment: [
+            { name: 'Node.js', present: true, installHint: null, installableBinary: null },
+            { name: 'PHP', present: false, installHint: 'Install PHP, then check again.', installableBinary: 'php' },
+          ],
+        }),
+      });
+
+      useScanStore.getState().markToolInstalled('php');
+
+      const state = useScanStore.getState();
+      expect(state.result?.environment).toEqual([
+        { name: 'Node.js', present: true, installHint: null, installableBinary: null },
+        { name: 'PHP', present: true, installHint: null, installableBinary: null },
+      ]);
+    });
+
+    it('does nothing when there is no scan result yet', () => {
+      useScanStore.setState({ projectId: null, result: null });
+
+      expect(() => useScanStore.getState().markToolInstalled('php')).not.toThrow();
+      expect(useScanStore.getState().result).toBeNull();
+    });
+
+    it('leaves every row alone when the binary does not match any of them', () => {
+      const withPhp = scanResult({
+        environment: [{ name: 'PHP', present: false, installHint: 'Install PHP.', installableBinary: 'php' }],
+      });
+      useScanStore.setState({ projectId: 'proj-1', result: withPhp });
+
+      useScanStore.getState().markToolInstalled('ruby');
+
+      expect(useScanStore.getState().result).toEqual(withPhp);
+    });
   });
 });

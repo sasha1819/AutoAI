@@ -5,6 +5,11 @@ import type { AssistantService } from '../services/AssistantService';
 import type { AuthService } from '../services/AuthService';
 import type { CaseGenerationService } from '../services/CaseGenerationService';
 import type { ClaudeConnectionService } from '../services/ClaudeConnectionService';
+import { parseAddMcpServerInput } from '../services/McpServerService';
+import type { McpServerService } from '../services/McpServerService';
+import type { SystemToolInstaller } from '../services/SystemToolInstaller';
+import { parseModelPreference } from '../services/ModelPreferenceService';
+import type { ModelPreferenceService } from '../services/ModelPreferenceService';
 import type { ProjectSetupService } from '../services/ProjectSetupService';
 import type { ProjectScanService } from '../services/ProjectScanService';
 import type { ProjectService } from '../services/ProjectService';
@@ -33,11 +38,14 @@ export function registerIpcHandlers(
   projectService: ProjectService,
   testPlanService: TestPlanService,
   claudeConnectionService: ClaudeConnectionService,
+  modelPreferenceService: ModelPreferenceService,
   projectScanService: ProjectScanService,
   caseGenerationService: CaseGenerationService,
   testRunnerService: TestRunnerService,
   projectSetupService: ProjectSetupService,
   assistantService: AssistantService,
+  mcpServerService: McpServerService,
+  systemToolInstaller: SystemToolInstaller,
 ): void {
   ipcMain.handle(IpcChannel.AuthHasProfile, () => {
     return authService.hasProfile();
@@ -155,6 +163,16 @@ export function registerIpcHandlers(
     return claudeConnectionService.check();
   });
 
+  ipcMain.handle(IpcChannel.ClaudeGetModelPreference, () => {
+    return modelPreferenceService.get();
+  });
+
+  ipcMain.handle(IpcChannel.ClaudeSetModelPreference, (_event, preference: unknown) => {
+    const parsed = parseModelPreference(preference);
+    if (!parsed) return modelPreferenceService.get();
+    return modelPreferenceService.set(parsed);
+  });
+
   ipcMain.handle(IpcChannel.ProjectScanRun, (_event, projectId: unknown) => {
     if (typeof projectId !== 'string') return { ok: false, error: 'PROJECT_NOT_FOUND' };
     return projectScanService.run(projectId);
@@ -198,5 +216,25 @@ export function registerIpcHandlers(
   ipcMain.handle(IpcChannel.AssistantSend, (_event, message: unknown, sessionId: unknown) => {
     if (typeof message !== 'string') return { ok: false, error: 'ASSISTANT_FAILED', detail: 'Invalid message.' };
     return assistantService.send(message, typeof sessionId === 'string' ? sessionId : null);
+  });
+
+  ipcMain.handle(IpcChannel.McpServersList, () => {
+    return mcpServerService.list();
+  });
+
+  ipcMain.handle(IpcChannel.McpServersAdd, (_event, input: unknown) => {
+    const parsed = parseAddMcpServerInput(input);
+    if (!parsed) return { ok: false, error: 'COMMAND_REQUIRED' };
+    return mcpServerService.add(parsed);
+  });
+
+  ipcMain.handle(IpcChannel.McpServersRemove, (_event, id: unknown) => {
+    if (typeof id !== 'string') return;
+    mcpServerService.remove(id);
+  });
+
+  ipcMain.handle(IpcChannel.SystemToolInstall, (_event, binary: unknown) => {
+    if (typeof binary !== 'string') return { ok: false, error: 'NOT_INSTALLABLE' };
+    return systemToolInstaller.install(binary);
   });
 }

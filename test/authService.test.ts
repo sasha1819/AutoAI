@@ -23,7 +23,7 @@ class FakeProfileRepository implements ProfileRepository {
 
   setRole(role: UserRole): void {
     if (!this.profile) return;
-    this.profile = { ...this.profile, role, onboardingCompleted: true };
+    this.profile = { ...this.profile, role };
   }
 }
 
@@ -36,13 +36,13 @@ describe('AuthService', () => {
     auth = new AuthService(repo);
   });
 
-  it('registers a first profile and returns a session with no password material', async () => {
+  it('registers a first profile and returns a session with a default role and no password material', async () => {
     const result = await auth.register({ name: 'Alex', email: 'Alex@Example.com', password: 'password123' });
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.session.email).toBe('alex@example.com'); // normalized
-    expect(result.session.onboardingCompleted).toBe(false);
+    expect(result.session.role).toBe(UserRole.AutomationEngineer);
     expect(result.session).not.toHaveProperty('passwordHash');
   });
 
@@ -84,12 +84,11 @@ describe('AuthService', () => {
     expect(result).toEqual({ ok: false, error: 'PROFILE_NOT_FOUND' });
   });
 
-  it('has no current session until onboarding role is set, then reflects it', async () => {
+  it('registers with a default role already set, and setRole changes it', async () => {
     await auth.register({ name: 'Alex', email: 'alex@example.com', password: 'password123' });
-    expect(auth.getCurrentSession()?.onboardingCompleted).toBe(false);
+    expect(auth.getCurrentSession()?.role).toBe(UserRole.AutomationEngineer);
 
     await auth.setRole(UserRole.ManualTester);
-    expect(auth.getCurrentSession()?.onboardingCompleted).toBe(true);
     expect(auth.getCurrentSession()?.role).toBe(UserRole.ManualTester);
   });
 

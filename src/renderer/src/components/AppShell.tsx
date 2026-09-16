@@ -2,7 +2,6 @@ import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
 import { ROLE_OPTIONS, UserRole } from '@shared/ipc-contract';
-import { useAssistantStore } from '../state/useAssistantStore';
 import { useProjectsStore } from '../state/useProjectsStore';
 import { useRunStore } from '../state/useRunStore';
 import { useSessionStore } from '../state/useSessionStore';
@@ -14,7 +13,6 @@ import {
   FileTextIcon,
   FolderIcon,
   LayoutGridIcon,
-  MessageCircleIcon,
   PlayIcon,
   SettingsIcon,
   ShieldCheckIcon,
@@ -114,16 +112,16 @@ interface AppShellProps {
 
 /**
  * The shell for every post-`ready` screen: the permanent left nav from the
- * v2 design, a 60px top bar, and one scrolling content region. Screens
- * supply their own padding so a full-bleed screen doesn't have to undo the
- * shell's.
+ * v2 design, a 60px top bar, one scrolling content region, and the
+ * "Ask AutoAI" dock (AssistantPanel) always present along the bottom.
+ * Screens supply their own padding so a full-bleed screen doesn't have to
+ * undo the shell's.
  */
 export function AppShell({ title, children }: AppShellProps): JSX.Element {
   const session = useSessionStore((s) => s.session);
   const projects = useProjectsStore((s) => s.projects);
   const allRuns = useRunStore((s) => s.allRuns);
   const loadAllRuns = useRunStore((s) => s.loadAll);
-  const toggleAssistant = useAssistantStore((s) => s.toggle);
 
   /* The nav's own count needs the real run total up front, not only once
      RunsScreen has been visited - same "never show a count it invented"
@@ -201,14 +199,6 @@ export function AppShell({ title, children }: AppShellProps): JSX.Element {
           </div>
 
           <div className="flex shrink-0 items-center gap-3">
-            <button
-              type="button"
-              onClick={toggleAssistant}
-              className="flex h-chip items-center gap-2 rounded-full border border-edge bg-raised px-3 text-caption text-quiet outline-none transition hover:text-ink focus-visible:ring-2 focus-visible:ring-accent/40"
-            >
-              <MessageCircleIcon size={14} />
-              Ask AutoAI
-            </button>
             {session?.role && <RoleSwitcher role={session.role} />}
             <span
               className="flex size-7 items-center justify-center rounded-full bg-ink font-display text-micro font-semibold text-surface"
@@ -219,7 +209,11 @@ export function AppShell({ title, children }: AppShellProps): JSX.Element {
           </div>
         </header>
 
-        <main className="scroll-region min-h-0 flex-1 overflow-y-auto">{children}</main>
+        {/* pb-16 reserves space for the assistant dock's slim, always-present
+            input row (AssistantPanel) - the dock grows taller than that when
+            a conversation is open, but the minimum persistent height never
+            covers a screen's own last row of content. */}
+        <main className="scroll-region min-h-0 flex-1 overflow-y-auto pb-16">{children}</main>
       </div>
 
       <AssistantPanel />

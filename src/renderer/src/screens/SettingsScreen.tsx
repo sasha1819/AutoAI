@@ -1,11 +1,262 @@
-import { ROLE_OPTIONS } from '@shared/ipc-contract';
+import { useEffect, useState } from 'react';
+import type { McpServerErrorCode } from '@shared/ipc-contract';
+import { CLAUDE_EFFORT_OPTIONS, CLAUDE_MODEL_OPTIONS, ROLE_OPTIONS } from '@shared/ipc-contract';
 import { AppShell } from '../components/AppShell';
+import { FormField } from '../components/FormField';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { RoleCard } from '../components/RoleCard';
+import { SelectField } from '../components/SelectField';
+import { TextAreaField } from '../components/TextAreaField';
 import { ShieldCheckIcon } from '../components/Icons';
 import { relativeTime } from '../lib/projectDisplay';
 import { useClaudeConnectionStore } from '../state/useClaudeConnectionStore';
+import { useMcpServersStore } from '../state/useMcpServersStore';
+import { useModelPreferenceStore } from '../state/useModelPreferenceStore';
 import { useSessionStore } from '../state/useSessionStore';
+
+const MCP_ERROR_COPY: Record<McpServerErrorCode, string> = {
+  NAME_REQUIRED: 'Give this server a name.',
+  NAME_RESERVED: '"autoai" is reserved for AutoAI\'s own tools - pick a different name.',
+  NAME_TAKEN: 'A server with that name already exists.',
+  COMMAND_REQUIRED: 'Give this server a command to run.',
+};
+
+/** Splits on whitespace and drops empty pieces - the same parsing for the
+ *  Args field's one space-separated line. */
+function splitArgs(raw: string): string[] {
+  return raw.trim().length === 0 ? [] : raw.trim().split(/\s+/);
+}
+
+/** One `KEY=value` per line, blank lines ignored. Lines without an `=` are
+ *  dropped rather than guessed at. */
+function parseEnvLines(raw: string): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq <= 0) continue;
+    env[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1).trim();
+  }
+  return env;
+}
+
+/**
+ * The user's own MCP servers - reachable only from Ask AutoAI, never from a
+ * project scan or generated test case (see McpServerService's own doc
+ * comment for why those stay on their narrow, fixed tool lists). Adding one
+ * here does not start anything by itself; it only stores the configuration
+ * that AssistantService reads the next time "Ask AutoAI" runs a query.
+ */
+function McpServersSection(): JSX.Element {
+  const servers = useMcpServersStore((s) => s.servers);
+  const loaded = useMcpServersStore((s) => s.loaded);
+  const adding = useMcpServersStore((s) => s.adding);
+  const lastError = useMcpServersStore((s) => s.lastError);
+  const load = useMcpServersStore((s) => s.load);
+  const add = useMcpServersStore((s) => s.add);
+  const remove = useMcpServersStore((s) => s.remove);
+  const clearError = useMcpServersStore((s) => s.clearError);
+
+  const [name, setName] = useState('');
+  const [command, setCommand] = useState('');
+  const [args, setArgs] = useState('');
+  const [env, setEnv] = useState('');
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function handleAdd(): Promise<void> {
+    const ok = await add({ name, command, args: splitArgs(args), env: parseEnvLines(env) });
+    if (ok) {
+      setName('');
+      setCommand('');
+      setArgs('');
+      setEnv('');
+    }
+  }
+
+  return (
+    <section className="flex flex-col gap-3" aria-labelledby="mcp-heading">
+      <div className="flex flex-col gap-1.5">
+        <h2 id="mcp-heading" className="font-display text-section font-semibold text-ink">
+          MCP servers
+        </h2>
+        <p className="text-label text-muted">
+          Extra tools Ask AutoAI can reach, on top of its own. Never used by a project scan or a
+          generated test case - only by chat.
+        </p>
+      </div>
+
+      <div className="flex items-start gap-2.5 rounded-lg border border-danger/30 bg-danger-soft p-4">
+        <p className="text-caption leading-relaxed text-quiet">
+          A server you add here runs a real command with real access on this machine, the moment
+          Ask AutoAI actually calls one of its tools. Only add servers you trust.
+        </p>
+      </div>
+
+      {loaded && servers.length === 0 && (
+        <p className="rounded-lg border border-hairline bg-raised p-4 text-caption text-faint">
+          No MCP servers added yet.
+        </p>
+      )}
+
+      {servers.length > 0 && (
+        <ul className="flex flex-col gap-2">
+          {servers.map((server) => (
+            <li
+              key={server.id}
+              className="flex items-center justify-between gap-4 rounded-md border border-hairline bg-surface p-3.5"
+            >
+              <div className="min-w-0">
+                <p className="text-label font-medium text-ink">{server.name}</p>
+                <p className="truncate font-mono text-caption text-muted">
+                  {[server.command, ...server.args].join(' ')}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void remove(server.id)}
+                className="shrink-0 text-caption text-muted transition hover:text-danger"
+              >
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {lastError && (
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-4 rounded-lg border border-danger/30 bg-danger-soft px-4 py-3"
+        >
+          <p className="text-label text-quiet">{MCP_ERROR_COPY[lastError]}</p>
+          <button
+            type="button"
+            onClick={clearError}
+            className="shrink-0 text-caption text-muted transition hover:text-ink"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      <div className="flex flex-col gap-3 rounded-lg border border-hairline bg-raised p-4">
+        <div className="flex flex-wrap gap-3">
+          <FormField id="mcp-name" label="Name" value={name} onChange={(e) => setName(e.target.value)} />
+          <FormField id="mcp-command" label="Command" value={command} onChange={(e) => setCommand(e.target.value)} />
+          <FormField
+            id="mcp-args"
+            label="Args"
+            value={args}
+            onChange={(e) => setArgs(e.target.value)}
+            placeholder="space separated"
+          />
+        </div>
+        <TextAreaField
+          id="mcp-env"
+          label="Env (optional)"
+          hint="One KEY=value per line."
+          rows={3}
+          value={env}
+          onChange={(e) => setEnv(e.target.value)}
+        />
+        <PrimaryButton
+          variant="secondary"
+          size="sm"
+          className="self-start"
+          disabled={name.trim().length === 0 || command.trim().length === 0}
+          loading={adding}
+          onClick={() => void handleAdd()}
+        >
+          Add server
+        </PrimaryButton>
+      </div>
+    </section>
+  );
+}
+
+const DEFAULT_VALUE = '';
+
+const EFFORT_LABEL: Record<(typeof CLAUDE_EFFORT_OPTIONS)[number], string> = {
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  xhigh: 'Extra high',
+  max: 'Max',
+};
+
+/**
+ * Which model/effort every Agent SDK call in this app uses - a real,
+ * changeable setting, not a silent default. Null on either field is a real
+ * choice ("use the claude CLI's own account default"), represented here as
+ * the empty-string option rather than left out of the list.
+ */
+function ModelPreferenceSection(): JSX.Element {
+  const preference = useModelPreferenceStore((s) => s.preference);
+  const loaded = useModelPreferenceStore((s) => s.loaded);
+  const load = useModelPreferenceStore((s) => s.load);
+  const setModel = useModelPreferenceStore((s) => s.setModel);
+  const setEffort = useModelPreferenceStore((s) => s.setEffort);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const activeModelLabel = CLAUDE_MODEL_OPTIONS.find((option) => option.id === preference.model)?.label ?? 'Sonnet 5';
+  const activeEffortLabel = preference.effort ? EFFORT_LABEL[preference.effort] : 'account default';
+
+  return (
+    <section className="flex flex-col gap-3" aria-labelledby="model-heading">
+      <div className="flex flex-col gap-1.5">
+        <h2 id="model-heading" className="font-display text-section font-semibold text-ink">
+          Model
+        </h2>
+        <p className="text-label text-muted">
+          Which Claude model and effort level every scan, generated test case, and Ask AutoAI
+          reply uses. A faster or cheaper choice trades away some depth - useful when you're
+          iterating quickly or watching token cost.
+        </p>
+      </div>
+
+      {loaded && (
+        <>
+          <p className="text-caption text-faint">
+            Currently: {activeModelLabel} · {activeEffortLabel} effort
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <SelectField
+              id="model-select"
+              tone="caps"
+              label="Model"
+              value={preference.model ?? DEFAULT_VALUE}
+              onChange={(event) => void setModel(event.target.value === DEFAULT_VALUE ? null : event.target.value)}
+              options={[
+                { value: DEFAULT_VALUE, label: 'Default' },
+                ...CLAUDE_MODEL_OPTIONS.map((option) => ({ value: option.id, label: `${option.label} - ${option.hint}` })),
+              ]}
+            />
+            <SelectField
+              id="effort-select"
+              tone="caps"
+              label="Effort"
+              value={preference.effort ?? DEFAULT_VALUE}
+              onChange={(event) =>
+                void setEffort(event.target.value === DEFAULT_VALUE ? null : (event.target.value as typeof preference.effort))
+              }
+              options={[
+                { value: DEFAULT_VALUE, label: 'Default' },
+                ...CLAUDE_EFFORT_OPTIONS.map((level) => ({ value: level, label: EFFORT_LABEL[level] })),
+              ]}
+            />
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
 
 function Field({
   label,
@@ -91,8 +342,8 @@ function ClaudeConnectionSection(): JSX.Element {
  * writes through `onboarding:set-role` (the same call onboarding makes),
  * and logging out is `auth:logout`.
  *
- * The design's Settings artboard also carries MCP servers and device
- * setup. Neither has a main-process side, so neither is drawn here.
+ * Device setup is the one thing the design's Settings artboard carries that
+ * still has no main-process side, so it stays out of this screen.
  */
 export function SettingsScreen(): JSX.Element {
   const session = useSessionStore((s) => s.session);
@@ -133,6 +384,10 @@ export function SettingsScreen(): JSX.Element {
         </section>
 
         <ClaudeConnectionSection />
+
+        <ModelPreferenceSection />
+
+        <McpServersSection />
 
         <section className="flex flex-col gap-3" aria-labelledby="local-heading">
           <h2 id="local-heading" className="font-display text-section font-semibold text-ink">

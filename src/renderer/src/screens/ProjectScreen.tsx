@@ -51,10 +51,10 @@ function Breadcrumb({ name }: { readonly name: string }): JSX.Element {
 
 /**
  * The design puts a run summary strip here - "Run 41 finished 12 minutes
- * ago, 6 passed, 1 failed". There is still no "Run all" (per-case only, per
- * the plan), so this shows the most recent of this project's per-case runs
- * once at least one exists, and the same honest empty sentence as before
- * otherwise.
+ * ago, 6 passed, 1 failed". Shows the most recent of this project's runs
+ * once at least one exists (including ones produced by AreaRail's batch
+ * "Run" action, which are just individual runs in sequence, not a separate
+ * kind of result), and the same honest empty sentence as before otherwise.
  */
 function RunStrip({ project }: { readonly project: Project }): JSX.Element {
   const runsByCase = useRunStore((s) => s.runsByCase);
@@ -222,6 +222,8 @@ function ProjectBody({ project }: { readonly project: Project }): JSX.Element {
   const moveCase = useTestPlanStore((s) => s.moveCase);
   const deleteCase = useTestPlanStore((s) => s.deleteCase);
   const clearError = useTestPlanStore((s) => s.clearError);
+  const runArea = useRunStore((s) => s.runArea);
+  const runningArea = useRunStore((s) => s.runningArea);
 
   const [selection, setSelection] = useState<AreaSelection>(ALL_CASES);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
@@ -234,6 +236,19 @@ function ProjectBody({ project }: { readonly project: Project }): JSX.Element {
 
   const counts = useMemo(() => countCases(cases), [cases]);
   const visible = useMemo(() => casesInSelection(cases, selection), [cases, selection]);
+
+  /* Which cases AreaRail's per-area Run button would actually run - only
+     ever the scripted ones, grouped by area, never "Unsorted" or "All
+     cases" (batch running stays scoped to real areas, per the plan). */
+  const runnableCaseIdsByArea = useMemo(() => {
+    const byArea: Record<string, string[]> = {};
+    for (const testCase of cases) {
+      if (!testCase.script || testCase.script.length === 0) continue;
+      if (!testCase.areaId) continue;
+      (byArea[testCase.areaId] ??= []).push(testCase.id);
+    }
+    return byArea;
+  }, [cases]);
 
   /* A case stays open only while it is still in front of the reader. Move
      it to another area, or delete it, and the panel beside a list that no
@@ -365,6 +380,9 @@ function ProjectBody({ project }: { readonly project: Project }): JSX.Element {
           onSelect={handleSelectArea}
           onCreateArea={(name) => void createArea(project.id, name)}
           onRenameArea={(areaId, name) => void renameArea(areaId, name)}
+          runnableCaseIdsByArea={runnableCaseIdsByArea}
+          onRunArea={(caseIds) => void runArea(caseIds)}
+          runningArea={runningArea}
         />
 
         <TestCaseList

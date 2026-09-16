@@ -8,39 +8,33 @@ export interface AssistantChatMessage {
 }
 
 interface AssistantStoreState {
-  open: boolean;
   messages: AssistantChatMessage[];
   sessionId: string | null;
   sending: boolean;
   lastError: AssistantErrorCode | null;
   lastErrorDetail: string | null;
   /** Set when the assistant used its `open_project_setup` tool - consumed
-   *  by AssistantPanel to navigate there, then cleared. Not a navigation the
+   *  by the dock to navigate there, then cleared. Not a navigation the
    *  assistant performs itself; the renderer owns all navigation. */
   pendingOpenProjectId: string | null;
-  toggle: () => void;
-  close: () => void;
   send: (text: string) => Promise<void>;
   clearPendingOpen: () => void;
   clearError: () => void;
 }
 
 /**
- * "Ask AutoAI" - a general assistant chat available from anywhere in the
- * app, distinct from CaseChatCard's project-scoped case generation. Not
- * persisted across app restarts in this pass, same as the plan states.
+ * "Ask AutoAI" - a persistent bottom dock available from anywhere in the
+ * app, distinct from CaseChatCard's project-scoped case generation. Always
+ * mounted, nothing to open or close. Not persisted across app restarts in
+ * this pass, same as the plan states.
  */
 export const useAssistantStore = create<AssistantStoreState>((set, get) => ({
-  open: false,
   messages: [],
   sessionId: null,
   sending: false,
   lastError: null,
   lastErrorDetail: null,
   pendingOpenProjectId: null,
-
-  toggle: () => set((state) => ({ open: !state.open })),
-  close: () => set({ open: false }),
 
   send: async (text) => {
     const trimmed = text.trim();

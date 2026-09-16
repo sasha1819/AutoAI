@@ -7,6 +7,11 @@ import { AuthService } from './services/AuthService';
 import { CaseGenerationService } from './services/CaseGenerationService';
 import { ClaudeConnectionService } from './services/ClaudeConnectionService';
 import { EnvironmentCheckService } from './services/EnvironmentCheckService';
+import { McpServerService } from './services/McpServerService';
+import { McpServerStore } from './services/McpServerStore';
+import { SystemToolInstaller } from './services/SystemToolInstaller';
+import { ModelPreferenceService } from './services/ModelPreferenceService';
+import { ModelPreferenceStore } from './services/ModelPreferenceStore';
 import { ProfileStore } from './services/ProfileStore';
 import { NodeProcessSpawner, ProjectSetupService } from './services/ProjectSetupService';
 import { ProjectScanService } from './services/ProjectScanService';
@@ -71,7 +76,9 @@ void app.whenReady().then(() => {
   const testCaseFileMirror = new FsTestCaseFileMirror();
   const testPlanService = new TestPlanService(testPlanStore, projectStore, testCaseFileMirror);
 
-  const agentRunner = new ClaudeAgentRunner();
+  const modelPreferenceStore = new ModelPreferenceStore();
+  const modelPreferenceService = new ModelPreferenceService(modelPreferenceStore);
+  const agentRunner = new ClaudeAgentRunner(modelPreferenceStore);
   const claudeConnectionService = new ClaudeConnectionService(agentRunner);
   const environmentCheckService = new EnvironmentCheckService();
   const scanStore = new ScanStore();
@@ -100,11 +107,16 @@ void app.whenReady().then(() => {
   // ProjectService.setBaseUrl directly, same as the plan calls for.
   const projectSetupService = new ProjectSetupService(scanStore, projectStore, projectService, new NodeProcessSpawner());
 
+  const mcpServerStore = new McpServerStore();
+  const mcpServerService = new McpServerService(mcpServerStore);
+  const systemToolInstaller = new SystemToolInstaller();
+
   const assistantService = new AssistantService(agentRunner, {
     projectRepository: projectStore,
     runRepository: runStore,
     scanRunner: projectScanService,
     caseGenerator: caseGenerationService,
+    mcpServerRepository: mcpServerStore,
   });
 
   registerIpcHandlers(
@@ -112,11 +124,14 @@ void app.whenReady().then(() => {
     projectService,
     testPlanService,
     claudeConnectionService,
+    modelPreferenceService,
     projectScanService,
     caseGenerationService,
     testRunnerService,
     projectSetupService,
     assistantService,
+    mcpServerService,
+    systemToolInstaller,
   );
 
   createMainWindow();

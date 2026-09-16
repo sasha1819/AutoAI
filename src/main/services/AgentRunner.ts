@@ -1,4 +1,6 @@
 import type { McpServerConfig, Options, OutputFormat } from '@anthropic-ai/claude-agent-sdk';
+import type { ClaudeEffortLevel } from '@shared/ipc-contract';
+import type { ModelPreferenceRepository } from './ModelPreferenceStore';
 
 /**
  * The one seam between AutoAI's main-process services and the Claude Agent
@@ -34,6 +36,13 @@ export interface AgentRunOptions {
    *  unrelated queries and has no reason to clutter that folder.
    *  AssistantService is the only caller that passes `true`. */
   readonly persistSession?: boolean;
+  /** Overrides the stored model/effort preference for this one call.
+   *  Nobody currently sets these - every real caller goes through the
+   *  stored ModelPreferenceStore instead - but the seam exists for a
+   *  future caller that genuinely needs a specific model regardless of
+   *  what the user picked in Settings. */
+  readonly model?: string;
+  readonly effort?: ClaudeEffortLevel;
 }
 
 export type AgentRunOutcome =
@@ -90,8 +99,15 @@ const AUTH_ERROR_CODES = new Set<string>(['authentication_failed', 'oauth_org_no
  * `resume` support needs a persisted session to load history from.
  */
 export class ClaudeAgentRunner implements AgentRunner {
+  constructor(private readonly modelPreference: ModelPreferenceRepository) {}
+
   public async run(prompt: string, options: AgentRunOptions): Promise<AgentRunOutcome> {
     const tools = options.allowedTools ? [...options.allowedTools] : [];
+    // The stored preference is injected here, transparently, so every
+    // existing caller (ProjectScanService, CaseGenerationService,
+    // AssistantService) gets it automatically without knowing it exists.
+    // A caller's own explicit `model`/`effort` (none exist yet) would win.
+    const preference = this.modelPreference.get();
 
     const sdkOptions: Options = {
       cwd: options.cwd,
@@ -103,6 +119,8 @@ export class ClaudeAgentRunner implements AgentRunner {
       mcpServers: options.mcpServers,
       resume: options.resume,
       persistSession: options.persistSession ?? false,
+      model: options.model ?? preference.model ?? undefined,
+      effort: options.effort ?? preference.effort ?? undefined,
     };
 
     let authErrorDetail: string | null = null;

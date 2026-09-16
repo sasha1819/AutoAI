@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IpcChannel } from '@shared/ipc-contract';
 import type {
+  AddMcpServerInput,
+  AddMcpServerResult,
   AddProjectResult,
   AreaResult,
   AssistantSendResult,
@@ -14,6 +16,8 @@ import type {
   ImportTestCasesInput,
   ImportTestCasesResult,
   LoginInput,
+  McpServerEntry,
+  ModelPreference,
   MoveTestCaseInput,
   OnboardingResult,
   Project,
@@ -25,6 +29,7 @@ import type {
   ScanRunResult,
   SessionState,
   SetupRunResult,
+  SystemToolInstallResult,
   TargetType,
   TestCaseResult,
   TestPlan,
@@ -84,6 +89,9 @@ const autoaiApi: AutoaiApi = {
   },
   claude: {
     checkConnection: (): Promise<ClaudeConnectionStatus> => ipcRenderer.invoke(IpcChannel.ClaudeCheckConnection),
+    getModelPreference: (): Promise<ModelPreference> => ipcRenderer.invoke(IpcChannel.ClaudeGetModelPreference),
+    setModelPreference: (preference: ModelPreference): Promise<ModelPreference> =>
+      ipcRenderer.invoke(IpcChannel.ClaudeSetModelPreference, preference),
   },
   scan: {
     run: (projectId: string): Promise<ScanRunResult> => ipcRenderer.invoke(IpcChannel.ProjectScanRun, projectId),
@@ -107,6 +115,16 @@ const autoaiApi: AutoaiApi = {
   assistant: {
     send: (message: string, sessionId: string | null): Promise<AssistantSendResult> =>
       ipcRenderer.invoke(IpcChannel.AssistantSend, message, sessionId),
+  },
+  mcpServers: {
+    list: (): Promise<McpServerEntry[]> => ipcRenderer.invoke(IpcChannel.McpServersList),
+    add: (input: AddMcpServerInput): Promise<AddMcpServerResult> =>
+      ipcRenderer.invoke(IpcChannel.McpServersAdd, input),
+    remove: (id: string): Promise<void> => ipcRenderer.invoke(IpcChannel.McpServersRemove, id),
+  },
+  systemTool: {
+    install: (binary: string): Promise<SystemToolInstallResult> =>
+      ipcRenderer.invoke(IpcChannel.SystemToolInstall, binary),
   },
 };
 

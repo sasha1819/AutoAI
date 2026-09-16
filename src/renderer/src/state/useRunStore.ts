@@ -11,11 +11,22 @@ interface RunStoreState {
    *  `runsByCase` this is not deduplicated per case. */
   allRuns: RunRecord[];
   running: boolean;
+  /** True for the whole duration of a `runArea` batch, independent of
+   *  `running`'s own per-case flicker - what an area's own "Run" button
+   *  shows a continuous loading state from. */
+  runningArea: boolean;
   lastError: RunErrorCode | null;
   lastErrorDetail: string | null;
   /** Runs one case for real and records the outcome, replacing whatever run
    *  was previously known for it. */
   run: (caseId: string) => Promise<RunRecord | null>;
+  /** Runs every given case id sequentially, through the same single-case
+   *  `run` above - no new IPC channel, this is purely a renderer-side loop.
+   *  Unlike a single case's own steps (which stop at the first failure
+   *  because later steps usually depend on earlier ones), independent
+   *  cases in a batch all get a chance to run regardless of one failing -
+   *  `runsByCase` updates incrementally as each one finishes. */
+  runArea: (caseIds: readonly string[]) => Promise<void>;
   /** Loads every run for a project and folds each case's most recent one
    *  into `runsByCase`, so reopening a project shows its last results
    *  instead of nothing. */
@@ -36,14 +47,16 @@ function latestPerCase(runs: readonly RunRecord[]): Record<string, RunRecord> {
 }
 
 /**
- * Real Playwright run results for the project currently open. Per-case
- * only - there is no "run all" in this pass, so this store never tracks
- * more than one in-flight run at a time.
+ * Real Playwright run results for the project currently open. `run` is one
+ * case; `runArea` is a whole area's runnable cases, run one at a time
+ * through the same channel - there is still only ever one real run
+ * in flight, `runArea` just keeps asking for the next one.
  */
-export const useRunStore = create<RunStoreState>((set) => ({
+export const useRunStore = create<RunStoreState>((set, get) => ({
   runsByCase: {},
   allRuns: [],
   running: false,
+  runningArea: false,
   lastError: null,
   lastErrorDetail: null,
 
@@ -64,6 +77,14 @@ export const useRunStore = create<RunStoreState>((set) => ({
       set({ running: false, lastError: 'RUN_FAILED', lastErrorDetail: 'The run itself could not reach the main process.' });
       return null;
     }
+  },
+
+  runArea: async (caseIds) => {
+    set({ runningArea: true });
+    for (const caseId of caseIds) {
+      await get().run(caseId);
+    }
+    set({ runningArea: false });
   },
 
   loadForProject: async (projectId) => {

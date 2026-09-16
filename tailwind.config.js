@@ -84,6 +84,29 @@ export default {
       borderRadius: {
         window: '12px',
       },
+      // A small, deliberate set of motion primitives - not a generic
+      // animation library. `stage-in` is the auth-flow transition (Welcome
+      // -> Register/Login -> ready); `dock-in`/`message-in` are the
+      // assistant dock's own mount and per-message entrance.
+      keyframes: {
+        'stage-in': {
+          from: { opacity: '0', transform: 'translateY(4px)' },
+          to: { opacity: '1', transform: 'translateY(0)' },
+        },
+        'dock-in': {
+          from: { opacity: '0', transform: 'translateY(12px)' },
+          to: { opacity: '1', transform: 'translateY(0)' },
+        },
+        'message-in': {
+          from: { opacity: '0', transform: 'translateY(6px)' },
+          to: { opacity: '1', transform: 'translateY(0)' },
+        },
+      },
+      animation: {
+        'stage-in': 'stage-in 220ms ease-out',
+        'dock-in': 'dock-in 260ms ease-out',
+        'message-in': 'message-in 180ms ease-out',
+      },
     },
   },
   plugins: [],

@@ -22,7 +22,7 @@ const fakeApi = {
   },
   onboarding: {
     setRole: async (role: UserRole) => {
-      const session = { ...(state.session as SessionState), role, onboardingCompleted: true };
+      const session = { ...(state.session as SessionState), role };
       state.session = session;
       return { ok: true as const, session };
     },
@@ -53,6 +53,8 @@ const fakeApi = {
   },
   claude: {
     checkConnection: async () => ({ connected: false as const, reason: 'NOT_LOGGED_IN' as const }),
+    getModelPreference: async () => ({ model: null, effort: null }),
+    setModelPreference: async (preference) => preference,
   },
   scan: {
     run: async () => ({ ok: false as const, error: 'PROJECT_NOT_FOUND' as const }),
@@ -69,8 +71,7 @@ function profile(overrides: Partial<SessionState> = {}): SessionState {
     id: 'p1',
     name: 'Alex Rivera',
     email: 'alex@example.com',
-    role: null,
-    onboardingCompleted: false,
+    role: UserRole.AutomationEngineer,
     ...overrides,
   };
 }
@@ -114,12 +115,19 @@ describe('useSessionStore flow gate', () => {
     expect(useSessionStore.getState().stage).toBe('needs-login');
   });
 
-  it('holds a registered profile at onboarding until a role is committed', async () => {
+  it('goes straight to ready for a registered profile with a live session - no onboarding gate', async () => {
     state.hasProfile = true;
     state.session = profile();
 
     await useSessionStore.getState().bootstrap();
-    expect(useSessionStore.getState().stage).toBe('needs-onboarding');
+
+    expect(useSessionStore.getState().stage).toBe('ready');
+  });
+
+  it('setRole changes the role without affecting stage', async () => {
+    state.hasProfile = true;
+    state.session = profile({ role: UserRole.ManualTester });
+    await useSessionStore.getState().bootstrap();
 
     await useSessionStore.getState().setRole(UserRole.AutomationEngineer);
 

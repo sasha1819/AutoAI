@@ -1,8 +1,9 @@
-import type { SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
+import type { McpServerConfig, SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import type { AssistantSendResult, CaseGenerationResult, ScanRunResult } from '@shared/ipc-contract';
 import { effectiveTargetType } from '@shared/ipc-contract';
 import type { AgentRunner } from './AgentRunner';
+import type { McpServerRepository } from './McpServerStore';
 import type { ProjectRepository } from './ProjectStore';
 import type { RunRepository } from './RunStore';
 
@@ -41,6 +42,11 @@ export interface AssistantToolDeps {
   readonly runRepository: RunRepository;
   readonly scanRunner: ScanRunner;
   readonly caseGenerator: CaseGenerator;
+  /** The user's own MCP servers - reachable only from here, never from a
+   *  scan or case generation (see McpServerService's own doc comment). Each
+   *  configured entry becomes one more stdio `mcpServers` entry and one more
+   *  `mcp__<name>__*` wildcard in `allowedTools` in `send()` below. */
+  readonly mcpServerRepository: McpServerRepository;
 }
 
 /** The five tools the assistant gets, plus a way to read what
@@ -200,9 +206,22 @@ export class AssistantService {
     const { createSdkMcpServer } = await import('@anthropic-ai/claude-agent-sdk');
     const server = createSdkMcpServer({ name: MCP_SERVER_NAME, tools });
 
+    const allowedTools = tools.map((t) => `mcp__${MCP_SERVER_NAME}__${t.name}`);
+    const mcpServers: Record<string, McpServerConfig> = { [MCP_SERVER_NAME]: server };
+
+    // The user's own configured MCP servers - reachable only from here (see
+    // AssistantToolDeps.mcpServerRepository's own comment). Each one is a
+    // real command this machine will spawn the moment the model actually
+    // calls one of its tools; McpServerService.add is what keeps a server
+    // from ever being named "autoai" and colliding with the entry above.
+    for (const entry of this.deps.mcpServerRepository.list()) {
+      mcpServers[entry.name] = { type: 'stdio', command: entry.command, args: [...entry.args], env: { ...entry.env } };
+      allowedTools.push(`mcp__${entry.name}__*`);
+    }
+
     const outcome = await this.agentRunner.run(trimmed, {
-      allowedTools: tools.map((t) => `mcp__${MCP_SERVER_NAME}__${t.name}`),
-      mcpServers: { [MCP_SERVER_NAME]: server },
+      allowedTools,
+      mcpServers,
       maxTurns: MAX_TURNS,
       maxBudgetUsd: MAX_BUDGET_USD,
       resume: sessionId ?? undefined,

@@ -9,7 +9,9 @@ import { PillGroup } from '../components/PillGroup';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { TransportFailedNotice } from '../components/TransportFailedNotice';
 import { describeProjectError } from '../lib/projectErrors';
+import { useClaudeConnectionStore } from '../state/useClaudeConnectionStore';
 import { useProjectsStore } from '../state/useProjectsStore';
+import { useScanStore } from '../state/useScanStore';
 
 type Mode = 'local' | 'git';
 
@@ -45,6 +47,8 @@ export function ProjectSetupScreen(): JSX.Element {
   const clearError = useProjectsStore((s) => s.clearError);
   const loading = useProjectsStore((s) => s.loading);
   const transportFailed = useProjectsStore((s) => s.transportFailed);
+  const claudeConnected = useClaudeConnectionStore((s) => s.connected);
+  const runScan = useScanStore((s) => s.run);
 
   /* Overview's "Choose a folder" opens the native picker before it
      navigates, and hands the result over in router state - so arriving
@@ -89,6 +93,14 @@ export function ProjectSetupScreen(): JSX.Element {
     if (targetType.length > 0) {
       await setOverride(project.id, targetType as TargetType);
     }
+    // Fired, not awaited: navigation happens immediately either way, and
+    // the project page's ProjectScanCard already reads this same global
+    // scan store and already loads whatever it finds for this project on
+    // its own mount - it picks up an in-flight or just-finished scan
+    // naturally, no extra state to reconcile here. Only when Claude is
+    // already connected - this never becomes the thing that prompts you
+    // to connect it.
+    if (claudeConnected) void runScan(project.id);
     navigate(`/projects/${project.id}`, { replace: true });
   }
 

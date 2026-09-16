@@ -1,9 +1,7 @@
 import { useEffect } from 'react';
 import { Route, Routes } from 'react-router-dom';
-import { DevScreenSwitcher } from './components/DevScreenSwitcher';
 import { ImportScreen } from './screens/ImportScreen';
 import { LoginScreen } from './screens/LoginScreen';
-import { OnboardingScreen } from './screens/OnboardingScreen';
 import { OverviewScreen } from './screens/OverviewScreen';
 import { ProjectScreen } from './screens/ProjectScreen';
 import { ProjectSetupScreen } from './screens/ProjectSetupScreen';
@@ -25,8 +23,10 @@ function LoadingScreen(): JSX.Element {
 }
 
 /**
- * The auth/onboarding flow is a linear gate, not a set of pages a user can
- * navigate freely between - so it's driven by `stage`, not by the router.
+ * The auth flow (Welcome -> Register/Login) is a linear gate, not a set of
+ * pages a user can navigate freely between - so it's driven by `stage`, not
+ * by the router. Registration assigns a real role immediately, so there is
+ * no separate onboarding step to gate on.
  *
  * Once a session is fully ready, everything past that point lives behind
  * react-router, matching the permanent left nav (`AppShell`) every one of
@@ -42,10 +42,11 @@ export function App(): JSX.Element {
   }, [bootstrap]);
 
   return (
-    <>
+    // Keyed by stage so each transition (Welcome -> Register/Login -> ready)
+    // remounts and replays the fade rather than hard-cutting.
+    <div key={stage} className="animate-stage-in">
       {renderStage(stage)}
-      <DevScreenSwitcher />
-    </>
+    </div>
   );
 }
 
@@ -59,8 +60,6 @@ function renderStage(stage: BootstrapStage): JSX.Element {
       return <RegisterScreen />;
     case 'needs-login':
       return <LoginScreen />;
-    case 'needs-onboarding':
-      return <OnboardingScreen />;
     case 'ready':
       return (
         <Routes>

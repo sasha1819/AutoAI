@@ -73,10 +73,7 @@ export class ProjectScanService implements ProjectDataOwner {
       return { ok: false, error: 'PROJECT_NOT_FOUND' };
     }
 
-    const [selectors, environment] = await Promise.all([
-      safeScanSelectors(project.localPath),
-      this.environmentChecker.check(effectiveTargetType(project), project.localPath),
-    ]);
+    const selectors = await safeScanSelectors(project.localPath);
 
     const outcome = await this.agentRunner.run(buildPrompt(project, selectors), {
       cwd: project.localPath,
@@ -99,6 +96,18 @@ export class ProjectScanService implements ProjectDataOwner {
     if (!parsed) {
       return { ok: false, error: 'SCAN_FAILED', detail: 'Claude did not return the expected structured result.' };
     }
+
+    // Runs only now, not in parallel with the agent call above, because it
+    // needs to know what the scan actually proposed running - checking for
+    // PHP only makes sense once `setup.startCommand` says the project needs
+    // `php -S ...`. The selector scan above has no such dependency and
+    // stays parallel with the agent call.
+    const environment = await this.environmentChecker.check(
+      effectiveTargetType(project),
+      project.localPath,
+      parsed.setup?.startCommand ?? null,
+      project.detection?.evidence ?? [],
+    );
 
     const result: ProjectScanResult = {
       description: parsed.description,

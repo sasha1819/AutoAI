@@ -21,6 +21,10 @@ interface ScanStoreState {
    *  reopening a project shows the last scan instead of nothing. */
   loadLast: (projectId: string) => Promise<void>;
   clearError: () => void;
+  /** Flips one checklist row to present after a real SystemToolInstaller
+   *  install confirmed it via its own probe - cheaper and faster than a
+   *  fresh (paid, Claude-driven) scan just to refresh one line. */
+  markToolInstalled: (binary: string) => void;
 }
 
 /**
@@ -64,4 +68,19 @@ export const useScanStore = create<ScanStoreState>((set, get) => ({
   },
 
   clearError: () => set({ lastError: null, lastErrorDetail: null, transportFailed: false }),
+
+  markToolInstalled: (binary) => {
+    const { result } = get();
+    if (!result) return;
+    set({
+      result: {
+        ...result,
+        environment: result.environment.map((item) =>
+          item.installableBinary === binary
+            ? { ...item, present: true, installHint: null, installableBinary: null }
+            : item,
+        ),
+      },
+    });
+  },
 }));

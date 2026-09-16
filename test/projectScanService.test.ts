@@ -58,12 +58,12 @@ class FakeScanRepository implements ScanRepository {
 }
 
 class FakeEnvironmentChecker implements EnvironmentChecker {
-  public calls: Array<{ targetType: string; projectRoot: string }> = [];
+  public calls: Array<{ targetType: string; projectRoot: string; startCommand: string | null; evidence: unknown }> = [];
 
   constructor(private readonly items: EnvironmentCheckItem[] = []) {}
 
-  async check(targetType: string, projectRoot: string): Promise<EnvironmentCheckItem[]> {
-    this.calls.push({ targetType, projectRoot });
+  async check(targetType: string, projectRoot: string, startCommand: string | null, evidence: unknown): Promise<EnvironmentCheckItem[]> {
+    this.calls.push({ targetType, projectRoot, startCommand, evidence });
     return this.items;
   }
 }
@@ -105,7 +105,7 @@ describe('ProjectScanService.run', () => {
     projectRoot = mkdtempSync(join(tmpdir(), 'autoai-scan-project-'));
     projectRepository = new FakeProjectRepository();
     scanRepository = new FakeScanRepository();
-    environmentChecker = new FakeEnvironmentChecker([{ name: 'Node.js', present: true, installHint: null }]);
+    environmentChecker = new FakeEnvironmentChecker([{ name: 'Node.js', present: true, installHint: null, installableBinary: null }]);
 
     project = {
       id: 'proj-1',
@@ -180,7 +180,7 @@ describe('ProjectScanService.run', () => {
     expect(result.result.description).toBe(VALID_STRUCTURED_OUTPUT.description);
     expect(result.result.suggestedFlows).toEqual(VALID_STRUCTURED_OUTPUT.suggestedFlows);
     expect(result.result.environmentNotes).toEqual(VALID_STRUCTURED_OUTPUT.environmentNotes);
-    expect(result.result.environment).toEqual([{ name: 'Node.js', present: true, installHint: null }]);
+    expect(result.result.environment).toEqual([{ name: 'Node.js', present: true, installHint: null, installableBinary: null }]);
 
     expect(scanRepository.get(project.id)).toEqual(result.result);
   });
@@ -265,6 +265,26 @@ describe('ProjectScanService.run', () => {
 
     await service.run(project.id);
 
-    expect(environmentChecker.calls).toEqual([{ targetType: 'web', projectRoot }]);
+    expect(environmentChecker.calls).toEqual([{ targetType: 'web', projectRoot, startCommand: null, evidence: [] }]);
+  });
+
+  it('passes the scan\'s own proposed startCommand to the environment checker, not just null', async () => {
+    const structuredOutput = {
+      ...VALID_STRUCTURED_OUTPUT,
+      setup: {
+        installCommands: [],
+        startCommand: 'php -S localhost:8000 -t .',
+        startCommandExplanation: null,
+        expectedBasePath: null,
+      },
+    };
+    const runner = new FakeAgentRunner({ ok: true, text: '', structuredOutput });
+    const service = makeService(runner);
+
+    await service.run(project.id);
+
+    expect(environmentChecker.calls).toEqual([
+      { targetType: 'web', projectRoot, startCommand: 'php -S localhost:8000 -t .', evidence: [] },
+    ]);
   });
 });
