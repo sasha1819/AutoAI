@@ -1,7 +1,9 @@
 import { useEffect } from 'react';
 import type { Project, SetupCommandOutcome, SetupErrorCode, SetupStartOutcome } from '@shared/ipc-contract';
+import { useProjectsStore } from '../state/useProjectsStore';
 import { useScanStore } from '../state/useScanStore';
 import { useSetupStore } from '../state/useSetupStore';
+import { EnvironmentChecklistRow } from './EnvironmentChecklistRow';
 import { PrimaryButton } from './PrimaryButton';
 
 const SETUP_ERROR_COPY: Record<SetupErrorCode, string> = {
@@ -79,14 +81,40 @@ export function ProjectSetupCard({ project }: { readonly project: Project }): JS
   const stopSetup = useSetupStore((s) => s.stop);
   const clearSetupError = useSetupStore((s) => s.clearError);
 
+  const setProjectsBaseUrl = useProjectsStore((s) => s.setBaseUrl);
+
   useEffect(() => {
     clearSetupError();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id]);
 
+  // ProjectSetupService auto-fills baseUrl server-side when it recognizes
+  // the start command's URL - but useProjectsStore's own `projects` list
+  // (what `project.baseUrl` here actually is) has no way to learn that on
+  // its own. Without this, a flow that was waiting on "set up this project
+  // to get a URL" stays stuck looking unset until a full reload, even
+  // though the server really is running. `setBaseUrl` re-writes the same
+  // value main already persisted - not optimistic, same "write, then read
+  // back what main actually stored" pattern every other setter in that
+  // store already follows - so this only syncs the read side.
+  async function handleRunSetup(): Promise<void> {
+    const ok = await runSetup(project.id);
+    if (!ok) return;
+    const autoFilled = useSetupStore.getState().result?.baseUrlAutoFilled;
+    if (autoFilled) void setProjectsBaseUrl(project.id, autoFilled);
+  }
+
   const proposal = scanProjectId === project.id ? scanResult?.setup ?? null : null;
   const shownResult = setupProjectId === project.id ? result : null;
   const shownServerRunning = setupProjectId === project.id && serverRunning;
+
+  // Same `environment` array ProjectScanCard renders - EnvironmentCheckService
+  // computed it against this exact proposal's startCommand, so it's already
+  // scoped to what this proposal needs. Missing items warn rather than
+  // block: some tools exist in ways AutoAI's checks don't catch, and the
+  // proposal might not even need the missing one specifically.
+  const missingItems =
+    scanProjectId === project.id ? (scanResult?.environment.filter((item) => !item.present) ?? []) : [];
 
   if (!proposal) return null;
 
@@ -111,11 +139,24 @@ export function ProjectSetupCard({ project }: { readonly project: Project }): JS
               Stop server
             </PrimaryButton>
           )}
-          <PrimaryButton size="sm" disabled={running} loading={running} onClick={() => void runSetup(project.id)}>
+          <PrimaryButton size="sm" disabled={running} loading={running} onClick={() => void handleRunSetup()}>
             Set up this project
           </PrimaryButton>
         </div>
       </div>
+
+      {missingItems.length > 0 && (
+        <div className="flex flex-col gap-2 rounded-md border border-accent-deep/40 bg-accent-soft p-3.5">
+          <p className="text-caption leading-relaxed text-accent-deep">
+            AutoAI found something this project may need that isn&rsquo;t on this machine yet - Setup can still run.
+          </p>
+          <ul className="flex flex-col gap-1.5">
+            {missingItems.map((item) => (
+              <EnvironmentChecklistRow key={item.name} item={item} />
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="flex flex-col gap-1.5 rounded-md border border-hairline bg-surface p-3.5">
         <span className="font-mono text-nano font-semibold uppercase tracking-wide text-muted">Proposed commands</span>

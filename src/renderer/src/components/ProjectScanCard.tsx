@@ -1,17 +1,14 @@
 import { useEffect, useState } from 'react';
-import type {
-  EnvironmentCheckItem,
-  Project,
-  ScanErrorCode,
-  SuggestedFlow,
-  SystemToolInstallErrorCode,
-} from '@shared/ipc-contract';
+import type { Project, RunRecord, ScanErrorCode, SuggestedFlow } from '@shared/ipc-contract';
+import { computeRunDisabledReason, describeRunError, RUN_DISABLED_REASON_COPY } from '../lib/runErrors';
 import { useClaudeConnectionStore } from '../state/useClaudeConnectionStore';
+import { useRunStore } from '../state/useRunStore';
 import { useScanStore } from '../state/useScanStore';
-import { useSystemToolStore } from '../state/useSystemToolStore';
 import { useTestPlanStore } from '../state/useTestPlanStore';
 import { ClaudeConnectPrompt } from './ClaudeConnectPrompt';
+import { EnvironmentChecklistRow } from './EnvironmentChecklistRow';
 import { PrimaryButton } from './PrimaryButton';
+import { RunResultSummary } from './RunResultSummary';
 
 const SCAN_ERROR_COPY: Record<ScanErrorCode, string> = {
   NOT_CONNECTED: "Claude isn't connected. Connect it in Settings, then try again.",
@@ -19,114 +16,90 @@ const SCAN_ERROR_COPY: Record<ScanErrorCode, string> = {
   SCAN_FAILED: 'The scan did not finish. You can try again.',
 };
 
-const SYSTEM_TOOL_ERROR_COPY: Record<SystemToolInstallErrorCode, string> = {
-  NOT_INSTALLABLE: "AutoAI doesn't have a one-click install for this.",
-  BREW_NOT_FOUND: 'Homebrew was not found on this machine.',
-  INSTALL_FAILED: 'The install did not finish.',
-};
-
 /**
- * Every binary SystemToolInstaller currently supports maps to a Homebrew
- * formula with the exact same name - true for all five entries in its own
- * closed map (php/composer/python/python3/ruby/dotnet) - so the literal
- * command shown here before the one click is accurate without needing a
- * second channel back from main just to carry a formula name.
+ * A suggested flow with a `script` can be run right here, without first
+ * navigating to the case it becomes - it reuses the exact same
+ * `TestRunnerService.run` pipeline `TestCaseDetail`'s own Run button does
+ * (`ensureCase` creates the case silently, the same `createCase` call
+ * "Add as test case" makes, the first time either button is used, so
+ * clicking both never creates a duplicate).
  */
-function brewInstallCommand(binary: string): string {
-  return `brew install ${binary}`;
-}
-
-function EnvironmentItemRow({ item }: { readonly item: EnvironmentCheckItem }): JSX.Element {
-  const [confirming, setConfirming] = useState(false);
-  const binary = item.installableBinary;
-  const toolState = useSystemToolStore((s) => (binary ? s.byBinary[binary] : undefined));
-  const install = useSystemToolStore((s) => s.install);
-  const markToolInstalled = useScanStore((s) => s.markToolInstalled);
-
-  async function handleRun(): Promise<void> {
-    if (!binary) return;
-    setConfirming(false);
-    const nowPresent = await install(binary);
-    if (nowPresent) markToolInstalled(binary);
-  }
-
-  return (
-    <li className="flex flex-col gap-1.5 text-caption">
-      <div className="flex flex-wrap items-center gap-2">
-        <span
-          className={`font-mono text-nano font-semibold uppercase tracking-wide ${
-            item.present ? 'text-ok' : 'text-danger'
-          }`}
-        >
-          {item.present ? 'Present' : 'Missing'}
-        </span>
-        <span className="text-quiet">{item.name}</span>
-        {!item.present && item.installHint && <span className="text-faint">— {item.installHint}</span>}
-        {!item.present && binary && !confirming && (
-          <button
-            type="button"
-            disabled={toolState?.installing}
-            onClick={() => setConfirming(true)}
-            className="shrink-0 text-caption font-medium text-accent-deep transition hover:text-accent-deep-hover disabled:opacity-50"
-          >
-            {toolState?.installing ? 'Installing…' : 'Install'}
-          </button>
-        )}
-      </div>
-
-      {confirming && (
-        <div className="flex flex-wrap items-center gap-2 rounded-md border border-hairline bg-surface px-3 py-2">
-          <span className="font-mono text-nano text-quiet">{brewInstallCommand(binary ?? '')}</span>
-          <button
-            type="button"
-            onClick={() => void handleRun()}
-            className="shrink-0 text-caption font-medium text-accent-deep transition hover:text-accent-deep-hover"
-          >
-            Run
-          </button>
-          <button
-            type="button"
-            onClick={() => setConfirming(false)}
-            className="shrink-0 text-caption text-muted transition hover:text-ink"
-          >
-            Cancel
-          </button>
-        </div>
-      )}
-
-      {toolState?.error && (
-        <p className="text-nano text-danger">{SYSTEM_TOOL_ERROR_COPY[toolState.error]}{toolState.detail ? ` — ${toolState.detail}` : ''}</p>
-      )}
-      {toolState && !toolState.error && !toolState.installing && toolState.output && (
-        <p className="truncate font-mono text-nano text-faint" title={toolState.output}>
-          {toolState.output}
-        </p>
-      )}
-    </li>
-  );
-}
-
 function FlowCard({
   flow,
-  projectId,
+  project,
   onAdded,
 }: {
   readonly flow: SuggestedFlow;
-  readonly projectId: string;
+  readonly project: Project;
   readonly onAdded: (caseId: string) => void;
 }): JSX.Element {
   const createCase = useTestPlanStore((s) => s.createCase);
   const saving = useTestPlanStore((s) => s.saving);
+  const [caseId, setCaseId] = useState<string | null>(null);
+  // useRunStore's running/lastError are global, not keyed by case - a
+  // second FlowCard would otherwise show the first one's failure. This
+  // scopes "was the run this card just triggered the one that failed" to
+  // this card alone, same single-flow-at-a-time assumption `running` (also
+  // global) already bakes into every Run button in this app.
+  const [attempted, setAttempted] = useState(false);
 
-  async function handleAdd(): Promise<void> {
+  const runsByCase = useRunStore((s) => s.runsByCase);
+  const running = useRunStore((s) => s.running);
+  const runCase = useRunStore((s) => s.run);
+  const runError = useRunStore((s) => s.lastError);
+  const runErrorDetail = useRunStore((s) => s.lastErrorDetail);
+  const clearRunError = useRunStore((s) => s.clearError);
+
+  const scanResult = useScanStore((s) => s.result);
+  const scanProjectId = useScanStore((s) => s.projectId);
+
+  const hasScript = Boolean(flow.script && flow.script.length > 0);
+  const hasBaseUrl = Boolean(project.baseUrl);
+  const lastScan = scanProjectId === project.id ? scanResult : null;
+  const browsersItem = lastScan?.environment.find((item) => item.name === 'Playwright browsers') ?? null;
+  const browsersKnownMissing = browsersItem !== null && !browsersItem.present;
+
+  const disabledReasonCode = computeRunDisabledReason(hasScript, hasBaseUrl, browsersKnownMissing);
+  // FlowCard sits right above the Setup card that actually starts the
+  // server and fills the URL in - "below" is literally true here, unlike
+  // TestCaseDetail's RunPanel, which sits under its own project-URL field.
+  const disabledReason =
+    disabledReasonCode === 'NO_BASE_URL'
+      ? 'Set up this project below to start it and get a URL.'
+      : disabledReasonCode
+        ? RUN_DISABLED_REASON_COPY[disabledReasonCode]
+        : null;
+
+  const lastRun: RunRecord | null = caseId ? (runsByCase[caseId] ?? null) : null;
+
+  async function ensureCase(): Promise<string | null> {
+    if (caseId) return caseId;
     const created = await createCase({
-      projectId,
+      projectId: project.id,
       areaId: null,
       name: flow.name,
       steps: flow.steps.length > 0 ? [...flow.steps] : [flow.description],
       script: flow.script && flow.script.length > 0 ? [...flow.script] : null,
     });
-    if (created) onAdded(created.id);
+    if (created) setCaseId(created.id);
+    return created?.id ?? null;
+  }
+
+  async function handleAdd(): Promise<void> {
+    const id = await ensureCase();
+    if (id) onAdded(id);
+  }
+
+  async function handleRun(): Promise<void> {
+    const id = await ensureCase();
+    if (!id) return;
+    setAttempted(true);
+    await runCase(id);
+  }
+
+  function handleDismissRunError(): void {
+    clearRunError();
+    setAttempted(false);
   }
 
   return (
@@ -134,7 +107,7 @@ function FlowCard({
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-label font-medium text-ink">{flow.name}</p>
-          {flow.script && flow.script.length > 0 && (
+          {hasScript && (
             <span className="flex h-pill items-center rounded-full border border-ok/40 px-2.5 text-nano font-semibold uppercase tracking-wide text-ok">
               Runnable
             </span>
@@ -153,10 +126,46 @@ function FlowCard({
             {flow.targetSelectors.join(', ')}
           </p>
         )}
+        {hasScript && (
+          <div className="mt-2.5 flex flex-col gap-2">
+            {disabledReason && !lastRun && <p className="text-caption text-muted">{disabledReason}</p>}
+            {attempted && !running && runError && !lastRun && (
+              <div
+                role="alert"
+                className="flex items-center justify-between gap-3 rounded-lg border border-danger/30 bg-danger-soft px-3.5 py-2.5"
+              >
+                <div className="min-w-0">
+                  <p className="text-caption text-quiet">{describeRunError(runError)}</p>
+                  {runErrorDetail && <p className="mt-0.5 truncate text-nano text-faint">{runErrorDetail}</p>}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleDismissRunError}
+                  className="shrink-0 text-caption text-muted transition hover:text-ink"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+            {lastRun && <RunResultSummary run={lastRun} />}
+          </div>
+        )}
       </div>
-      <PrimaryButton variant="secondary" size="sm" disabled={saving} onClick={() => void handleAdd()}>
-        Add as test case
-      </PrimaryButton>
+      <div className="flex shrink-0 flex-col items-end gap-2">
+        <PrimaryButton variant="secondary" size="sm" disabled={saving} onClick={() => void handleAdd()}>
+          {caseId ? 'Added' : 'Add as test case'}
+        </PrimaryButton>
+        {hasScript && (
+          <PrimaryButton
+            size="sm"
+            disabled={Boolean(disabledReason) || running}
+            loading={running}
+            onClick={() => void handleRun()}
+          >
+            Run
+          </PrimaryButton>
+        )}
+      </div>
     </div>
   );
 }
@@ -247,7 +256,7 @@ export function ProjectScanCard({ project, onCaseCreated }: ProjectScanCardProps
               </span>
               <div className="flex flex-col gap-2">
                 {result.suggestedFlows.map((flow) => (
-                  <FlowCard key={flow.name} flow={flow} projectId={project.id} onAdded={onCaseCreated} />
+                  <FlowCard key={flow.name} flow={flow} project={project} onAdded={onCaseCreated} />
                 ))}
               </div>
             </div>
@@ -260,7 +269,7 @@ export function ProjectScanCard({ project, onCaseCreated }: ProjectScanCardProps
               </span>
               <ul className="flex flex-col gap-1.5">
                 {result.environment.map((item) => (
-                  <EnvironmentItemRow key={item.name} item={item} />
+                  <EnvironmentChecklistRow key={item.name} item={item} />
                 ))}
               </ul>
             </div>

@@ -1,21 +1,16 @@
 import { useId, useState } from 'react';
-import type { AreaRecord, Project, RunStepResult, TestCaseRecord } from '@shared/ipc-contract';
+import type { AreaRecord, Project, TestCaseRecord } from '@shared/ipc-contract';
 import { relativeTime } from '../lib/projectDisplay';
-import { describeRunError } from '../lib/runErrors';
+import { computeRunDisabledReason, describeRunError, RUN_DISABLED_REASON_COPY } from '../lib/runErrors';
 import { stepCountLabel } from '../lib/testPlanDisplay';
 import { useRunStore } from '../state/useRunStore';
 import { useScanStore } from '../state/useScanStore';
 import { TrashIcon } from './Icons';
 import { PrimaryButton } from './PrimaryButton';
+import { RunResultSummary } from './RunResultSummary';
 import { SelectField } from './SelectField';
 
 const UNSORTED_VALUE = '';
-
-const STEP_STATUS_COPY: Record<RunStepResult['status'], { readonly label: string; readonly className: string }> = {
-  passed: { label: 'Passed', className: 'text-ok' },
-  failed: { label: 'Failed', className: 'text-danger' },
-  skipped: { label: 'Skipped', className: 'text-muted' },
-};
 
 interface TestCaseDetailProps {
   readonly testCase: TestCaseRecord;
@@ -59,13 +54,8 @@ function RunPanel({ testCase, project }: { readonly testCase: TestCaseRecord; re
   const browsersItem = lastScan?.environment.find((item) => item.name === 'Playwright browsers') ?? null;
   const browsersKnownMissing = browsersItem !== null && !browsersItem.present;
 
-  const disabledReason = !hasScript
-    ? "This case has no runnable script yet - only chat-generated and scan-suggested cases get one."
-    : !hasBaseUrl
-      ? 'Set a project URL above first.'
-      : browsersKnownMissing
-        ? describeRunError('BROWSER_NOT_READY')
-        : null;
+  const disabledReasonCode = computeRunDisabledReason(hasScript, hasBaseUrl, browsersKnownMissing);
+  const disabledReason = disabledReasonCode ? RUN_DISABLED_REASON_COPY[disabledReasonCode] : null;
 
   const lastRun = runsByCase[testCase.id] ?? null;
 
@@ -105,34 +95,7 @@ function RunPanel({ testCase, project }: { readonly testCase: TestCaseRecord; re
         </div>
       )}
 
-      {lastRun && (
-        <div className="flex flex-col gap-2.5 rounded-md border border-hairline bg-surface p-3.5">
-          <div className="flex items-center justify-between gap-3">
-            <span
-              className={`font-mono text-nano font-semibold uppercase tracking-wide ${
-                lastRun.status === 'passed' ? 'text-ok' : 'text-danger'
-              }`}
-            >
-              {lastRun.status === 'passed' ? 'Passed' : 'Failed'}
-            </span>
-            <span className="text-caption text-faint">finished {relativeTime(lastRun.finishedAt, Date.now())}</span>
-          </div>
-          <ol className="flex flex-col gap-1.5">
-            {lastRun.steps.map((step, index) => (
-              <li key={index} className="flex items-start gap-2 text-caption">
-                <span className={`w-14 shrink-0 font-mono text-nano font-semibold uppercase tracking-wide ${STEP_STATUS_COPY[step.status].className}`}>
-                  {STEP_STATUS_COPY[step.status].label}
-                </span>
-                <span className="min-w-0 flex-1 text-quiet">
-                  {step.action.action}
-                  {step.action.selectorValue ? ` (${step.action.selectorKind}="${step.action.selectorValue}")` : ''}
-                  {step.error && <span className="block text-danger">{step.error}</span>}
-                </span>
-              </li>
-            ))}
-          </ol>
-        </div>
-      )}
+      {lastRun && <RunResultSummary run={lastRun} />}
     </div>
   );
 }
