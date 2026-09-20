@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import type { Project, RunRecord, ScanErrorCode, SuggestedFlow } from '@shared/ipc-contract';
 import { computeRunDisabledReason, describeRunError, RUN_DISABLED_REASON_COPY } from '../lib/runErrors';
+import { ensureCaseForFlow, findCaseForFlow, isFlowEligibleToRun } from '../lib/scanFlows';
 import { useClaudeConnectionStore } from '../state/useClaudeConnectionStore';
+import { useProjectsStore } from '../state/useProjectsStore';
 import { useRunStore } from '../state/useRunStore';
 import { useScanStore } from '../state/useScanStore';
 import { useTestPlanStore } from '../state/useTestPlanStore';
@@ -19,10 +21,12 @@ const SCAN_ERROR_COPY: Record<ScanErrorCode, string> = {
 /**
  * A suggested flow with a `script` can be run right here, without first
  * navigating to the case it becomes - it reuses the exact same
- * `TestRunnerService.run` pipeline `TestCaseDetail`'s own Run button does
- * (`ensureCase` creates the case silently, the same `createCase` call
- * "Add as test case" makes, the first time either button is used, so
- * clicking both never creates a duplicate).
+ * `TestRunnerService.run` pipeline `TestCaseDetail`'s own Run button does.
+ * Its case is derived from `useTestPlanStore`'s already-shared `cases`
+ * list (see `findCaseForFlow`), not tracked as local state - so both this
+ * card's own buttons and a "Run all" action triggered from the parent
+ * reflect the exact same case and result, and neither can create a
+ * duplicate.
  */
 function FlowCard({
   flow,
@@ -33,9 +37,9 @@ function FlowCard({
   readonly project: Project;
   readonly onAdded: (caseId: string) => void;
 }): JSX.Element {
+  const cases = useTestPlanStore((s) => s.cases);
   const createCase = useTestPlanStore((s) => s.createCase);
   const saving = useTestPlanStore((s) => s.saving);
-  const [caseId, setCaseId] = useState<string | null>(null);
   // useRunStore's running/lastError are global, not keyed by case - a
   // second FlowCard would otherwise show the first one's failure. This
   // scopes "was the run this card just triggered the one that failed" to
@@ -70,28 +74,16 @@ function FlowCard({
         ? RUN_DISABLED_REASON_COPY[disabledReasonCode]
         : null;
 
+  const caseId = findCaseForFlow(cases, project.id, flow.name)?.id ?? null;
   const lastRun: RunRecord | null = caseId ? (runsByCase[caseId] ?? null) : null;
 
-  async function ensureCase(): Promise<string | null> {
-    if (caseId) return caseId;
-    const created = await createCase({
-      projectId: project.id,
-      areaId: null,
-      name: flow.name,
-      steps: flow.steps.length > 0 ? [...flow.steps] : [flow.description],
-      script: flow.script && flow.script.length > 0 ? [...flow.script] : null,
-    });
-    if (created) setCaseId(created.id);
-    return created?.id ?? null;
-  }
-
   async function handleAdd(): Promise<void> {
-    const id = await ensureCase();
+    const id = await ensureCaseForFlow(flow, project, useTestPlanStore.getState().cases, createCase);
     if (id) onAdded(id);
   }
 
   async function handleRun(): Promise<void> {
-    const id = await ensureCase();
+    const id = await ensureCaseForFlow(flow, project, useTestPlanStore.getState().cases, createCase);
     if (!id) return;
     setAttempted(true);
     await runCase(id);
@@ -200,12 +192,55 @@ export function ProjectScanCard({ project, onCaseCreated }: ProjectScanCardProps
   const runScan = useScanStore((s) => s.run);
   const loadLastScan = useScanStore((s) => s.loadLast);
   const clearScanError = useScanStore((s) => s.clearError);
+  const setProjectsOverride = useProjectsStore((s) => s.setOverride);
+  const createCase = useTestPlanStore((s) => s.createCase);
+  const runCase = useRunStore((s) => s.run);
+  const [runningAll, setRunningAll] = useState(false);
 
   useEffect(() => {
     void loadLastScan(project.id);
   }, [loadLastScan, project.id]);
 
+  // ProjectScanService applies a target type it read directly to the
+  // project when nothing had settled on one yet - useProjectsStore's own
+  // copy of the project has no way to learn that on its own, same gap
+  // ProjectSetupCard already closes for an auto-filled baseUrl.
+  // setOverride re-writes what main already persisted - not optimistic.
+  async function handleRunScan(): Promise<void> {
+    const ok = await runScan(project.id);
+    if (!ok) return;
+    const appliedTargetType = useScanStore.getState().lastAppliedTargetType;
+    if (appliedTargetType) void setProjectsOverride(project.id, appliedTargetType);
+  }
+
   const result = scanProjectId === project.id ? scanResult : null;
+
+  function isEligible(flow: SuggestedFlow): boolean {
+    if (!result) return false;
+    const hasScript = Boolean(flow.script && flow.script.length > 0);
+    const hasBaseUrl = Boolean(project.baseUrl);
+    const browsersItem = result.environment.find((item) => item.name === 'Playwright browsers') ?? null;
+    const browsersKnownMissing = browsersItem !== null && !browsersItem.present;
+    return isFlowEligibleToRun(hasScript, hasBaseUrl, browsersKnownMissing);
+  }
+
+  const eligibleFlows = result ? result.suggestedFlows.filter(isEligible) : [];
+
+  // Sequential, same as useRunStore.runArea's own loop - no new concurrency
+  // model. Anything not actually runnable right now (no script, blocked on
+  // base URL/browsers) is silently skipped, same as its own Run button
+  // just not appearing for it.
+  async function handleRunAll(): Promise<void> {
+    setRunningAll(true);
+    try {
+      for (const flow of eligibleFlows) {
+        const id = await ensureCaseForFlow(flow, project, useTestPlanStore.getState().cases, createCase);
+        if (id) await runCase(id);
+      }
+    } finally {
+      setRunningAll(false);
+    }
+  }
 
   return (
     <div className="flex flex-col gap-4 rounded-lg border border-hairline bg-raised p-5">
@@ -221,7 +256,7 @@ export function ProjectScanCard({ project, onCaseCreated }: ProjectScanCardProps
           size="sm"
           disabled={!connected || scanning}
           loading={scanning}
-          onClick={() => void runScan(project.id)}
+          onClick={() => void handleRunScan()}
         >
           Scan project
         </PrimaryButton>
@@ -251,9 +286,22 @@ export function ProjectScanCard({ project, onCaseCreated }: ProjectScanCardProps
 
           {result.suggestedFlows.length > 0 && (
             <div className="flex flex-col gap-2">
-              <span className="font-mono text-nano font-semibold uppercase tracking-wide text-muted">
-                Suggested test flows
-              </span>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-mono text-nano font-semibold uppercase tracking-wide text-muted">
+                  Suggested test flows
+                </span>
+                {eligibleFlows.length > 0 && (
+                  <PrimaryButton
+                    variant="secondary"
+                    size="sm"
+                    disabled={runningAll}
+                    loading={runningAll}
+                    onClick={() => void handleRunAll()}
+                  >
+                    Run all
+                  </PrimaryButton>
+                )}
+              </div>
               <div className="flex flex-col gap-2">
                 {result.suggestedFlows.map((flow) => (
                   <FlowCard key={flow.name} flow={flow} project={project} onAdded={onCaseCreated} />

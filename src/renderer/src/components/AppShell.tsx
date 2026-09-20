@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
-import { ROLE_OPTIONS, UserRole } from '@shared/ipc-contract';
 import { useProjectsStore } from '../state/useProjectsStore';
 import { useRunStore } from '../state/useRunStore';
 import { useSessionStore } from '../state/useSessionStore';
@@ -9,7 +8,6 @@ import { AssistantPanel } from './AssistantPanel';
 import { BrandMark } from './BrandMark';
 import type { IconProps } from './Icons';
 import {
-  ChevronDownIcon,
   FileTextIcon,
   FolderIcon,
   LayoutGridIcon,
@@ -17,12 +15,6 @@ import {
   SettingsIcon,
   ShieldCheckIcon,
 } from './Icons';
-
-export const ROLE_LABEL: Record<UserRole, string> = {
-  [UserRole.ManualTester]: 'Manual QA Tester',
-  [UserRole.AutomationEngineer]: 'Automation Engineer',
-  [UserRole.QaLead]: 'QA Lead',
-};
 
 const NAV_ITEM_BASE =
   'flex h-row items-center gap-2.5 rounded-lg px-2.5 text-ui outline-none transition focus-visible:ring-2 focus-visible:ring-accent/40';
@@ -68,38 +60,6 @@ function NavItem({
         </>
       )}
     </NavLink>
-  );
-}
-
-/**
- * The role pill from the design, wired rather than drawn. It carries a
- * chevron, so it opens something: changing the selection re-runs the same
- * `onboarding:set-role` call the onboarding screen makes, and the whole UI
- * changes register with it. A native select keeps it keyboard- and
- * screen-reader-navigable for free; the pill chrome sits on top.
- */
-function RoleSwitcher({ role }: { readonly role: UserRole }): JSX.Element {
-  const setRole = useSessionStore((s) => s.setRole);
-
-  return (
-    <div className="relative flex h-chip items-center rounded-full border border-edge bg-raised pl-3 pr-8">
-      <span className="mr-2 size-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
-      <select
-        aria-label="Your role"
-        value={role}
-        onChange={(e) => void setRole(e.target.value as UserRole)}
-        className="cursor-pointer appearance-none bg-transparent pr-1 text-caption text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
-      >
-        {ROLE_OPTIONS.map((option) => (
-          <option key={option.role} value={option.role}>
-            {ROLE_LABEL[option.role]}
-          </option>
-        ))}
-      </select>
-      <span className="pointer-events-none absolute right-3 text-muted">
-        <ChevronDownIcon size={12} />
-      </span>
-    </div>
   );
 }
 
@@ -199,7 +159,6 @@ export function AppShell({ title, children }: AppShellProps): JSX.Element {
           </div>
 
           <div className="flex shrink-0 items-center gap-3">
-            {session?.role && <RoleSwitcher role={session.role} />}
             <span
               className="flex size-7 items-center justify-center rounded-full bg-ink font-display text-micro font-semibold text-surface"
               title={session?.name}

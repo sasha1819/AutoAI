@@ -1,25 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import type {
-  AuthResult,
-  LoginInput,
-  OnboardingResult,
-  RegisterInput,
-  SessionState,
-  UserRole,
-} from '@shared/ipc-contract';
-import { UserRole as UserRoleValues } from '@shared/ipc-contract';
+import type { AuthResult, LoginInput, RegisterInput, SessionState } from '@shared/ipc-contract';
 import { PasswordHasher } from './PasswordHasher';
 import type { ProfileRepository, StoredProfile } from './ProfileStore';
 
 const MIN_PASSWORD_LENGTH = 8;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-/** Onboarding no longer gates entry - a new profile gets a real role from
- *  the moment it's created rather than sitting in a blocking "pick one"
- *  screen. Automation Engineer because that's the option the role picker
- *  already showed pre-selected; the role pill in AppShell's top bar and
- *  Settings' own role section are how anyone changes it afterward. */
-const DEFAULT_ROLE: UserRole = UserRoleValues.AutomationEngineer;
 
 function toSessionState(profile: StoredProfile): SessionState {
   // Deliberately excludes passwordHash/passwordSalt - this is the only
@@ -28,7 +13,6 @@ function toSessionState(profile: StoredProfile): SessionState {
     id: profile.id,
     name: profile.name,
     email: profile.email,
-    role: profile.role,
   };
 }
 
@@ -42,7 +26,7 @@ function normalizeEmail(email: string): string {
  * single profile per install - there is no server, no network call, no
  * token to leak. If AutoAI later needs real multi-device accounts, this is
  * the seam to swap for a hosted-auth-backed implementation of the same
- * interface shape (register/login/logout/getCurrentSession/setRole).
+ * interface shape (register/login/logout/getCurrentSession).
  */
 export class AuthService {
   private readonly hasher = new PasswordHasher();
@@ -80,7 +64,6 @@ export class AuthService {
       email: normalizeEmail(input.email),
       passwordHash: hash,
       passwordSalt: salt,
-      role: DEFAULT_ROLE,
       loggedIn: true,
     };
 
@@ -108,14 +91,5 @@ export class AuthService {
 
   public async logout(): Promise<void> {
     this.profileStore.setLoggedIn(false);
-  }
-
-  public async setRole(role: UserRole): Promise<OnboardingResult> {
-    this.profileStore.setRole(role);
-    const profile = this.profileStore.getRaw();
-    if (!profile) {
-      throw new Error('setRole called with no active profile - this should be unreachable from the UI flow.');
-    }
-    return { ok: true, session: toSessionState(profile) };
   }
 }

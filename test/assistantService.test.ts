@@ -137,7 +137,7 @@ async function toolDeps(overrides: Partial<AssistantToolDeps> = {}): Promise<Ass
   return {
     projectRepository: new FakeProjectRepository(),
     runRepository: new FakeRunRepository(),
-    scanRunner: new FakeScanRunner({ ok: true, result: { description: 'x', suggestedFlows: [], environmentNotes: [], environment: [], setup: null, generatedAt: '2026-01-01T00:00:00.000Z' } }),
+    scanRunner: new FakeScanRunner({ ok: true, result: { description: 'x', suggestedFlows: [], environmentNotes: [], environment: [], setup: null, generatedAt: '2026-01-01T00:00:00.000Z' }, appliedTargetType: null }),
     caseGenerator: new FakeCaseGenerator({ ok: true, flow: { name: 'Checkout', description: 'desc', steps: ['a'] } }),
     mcpServerRepository: new FakeMcpServerRepository(),
     ...overrides,
@@ -192,6 +192,7 @@ describe('buildAssistantTools', () => {
     const scanRunner = new FakeScanRunner({
       ok: true,
       result: { description: 'A checkout flow.', suggestedFlows: [], environmentNotes: [], environment: [], setup: null, generatedAt: '2026-01-01T00:00:00.000Z' },
+      appliedTargetType: null,
     });
     const { tools } = await buildAssistantTools(await toolDeps({ scanRunner }));
 

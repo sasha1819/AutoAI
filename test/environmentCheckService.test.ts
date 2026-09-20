@@ -1,9 +1,8 @@
-import { homedir } from 'node:os';
 import { describe, expect, it } from 'vitest';
+import { chromium } from 'playwright';
 import type { EnvironmentProbe } from '../src/main/services/EnvironmentCheckService';
 import {
   EnvironmentCheckService,
-  playwrightBrowsersDir,
   requiredRuntimesFor,
   requiredRuntimesForFrameworks,
 } from '../src/main/services/EnvironmentCheckService';
@@ -33,14 +32,15 @@ class FakeProbe implements EnvironmentProbe {
 }
 
 const PROJECT_ROOT = '/fake/project';
-// Matches exactly what EnvironmentCheckService computes internally
-// (platform + the real home dir + the real env), since the service does
-// not take those as injectable parameters - only the probe is a seam.
-const BROWSERS_DIR = playwrightBrowsersDir(process.platform, homedir(), process.env);
+// The exact path the installed Playwright version's own resolution logic
+// expects - same thing EnvironmentCheckService itself checks now, computed
+// via the real `chromium` import so this test can't drift from the
+// service's own logic.
+const CHROMIUM_PATH = chromium.executablePath();
 
 describe('EnvironmentCheckService.check - web', () => {
   it('reports everything present when node and the browsers both resolve', async () => {
-    const service = new EnvironmentCheckService(new FakeProbe(new Set(['node']), new Set([BROWSERS_DIR])));
+    const service = new EnvironmentCheckService(new FakeProbe(new Set(['node']), new Set([CHROMIUM_PATH])));
 
     const items = await service.check(TargetType.Web, PROJECT_ROOT, null, []);
 
@@ -52,6 +52,7 @@ describe('EnvironmentCheckService.check - web', () => {
     // (see TestRunnerService), AutoAI's own Playwright install is a build
     // dependency, not something to check per-project.
     expect(items.map((item) => item.name)).toEqual(['Node.js', 'Playwright browsers']);
+    expect(items.find((item) => item.name === 'Playwright browsers')?.installablePlaywrightBrowsers).toBe(false);
   });
 
   it('flags a missing tool with a concrete install hint, not a fake pass', async () => {
@@ -65,6 +66,7 @@ describe('EnvironmentCheckService.check - web', () => {
     }
     const browsersItem = items.find((item) => item.name === 'Playwright browsers');
     expect(browsersItem?.installHint).toContain('npx playwright install');
+    expect(browsersItem?.installablePlaywrightBrowsers).toBe(true);
   });
 
   it('checks node and the browsers independently of each other', async () => {
@@ -79,7 +81,7 @@ describe('EnvironmentCheckService.check - web', () => {
 
 describe('EnvironmentCheckService.check - the runtime a proposed start command needs', () => {
   it('flags PHP as missing for a php -S start command, not just Node.js and browsers', async () => {
-    const service = new EnvironmentCheckService(new FakeProbe(new Set(['node']), new Set([BROWSERS_DIR])));
+    const service = new EnvironmentCheckService(new FakeProbe(new Set(['node']), new Set([CHROMIUM_PATH])));
 
     const items = await service.check(TargetType.Web, PROJECT_ROOT, 'php -S localhost:8000 -t .', []);
 
@@ -92,7 +94,7 @@ describe('EnvironmentCheckService.check - the runtime a proposed start command n
   });
 
   it('reports PHP present when the probe finds it', async () => {
-    const service = new EnvironmentCheckService(new FakeProbe(new Set(['node', 'php']), new Set([BROWSERS_DIR])));
+    const service = new EnvironmentCheckService(new FakeProbe(new Set(['node', 'php']), new Set([CHROMIUM_PATH])));
 
     const items = await service.check(TargetType.Web, PROJECT_ROOT, 'php -S localhost:8000 -t .', []);
 
@@ -100,7 +102,7 @@ describe('EnvironmentCheckService.check - the runtime a proposed start command n
   });
 
   it('checks both PHP and Composer for a composer install command', async () => {
-    const service = new EnvironmentCheckService(new FakeProbe(new Set(['node']), new Set([BROWSERS_DIR])));
+    const service = new EnvironmentCheckService(new FakeProbe(new Set(['node']), new Set([CHROMIUM_PATH])));
 
     const items = await service.check(TargetType.Web, PROJECT_ROOT, 'composer install', []);
 
@@ -108,7 +110,7 @@ describe('EnvironmentCheckService.check - the runtime a proposed start command n
   });
 
   it('adds nothing extra for a Node-based command - Node.js is already covered', async () => {
-    const service = new EnvironmentCheckService(new FakeProbe(new Set(['node']), new Set([BROWSERS_DIR])));
+    const service = new EnvironmentCheckService(new FakeProbe(new Set(['node']), new Set([CHROMIUM_PATH])));
 
     const items = await service.check(TargetType.Web, PROJECT_ROOT, 'npm run dev', []);
 
@@ -116,7 +118,7 @@ describe('EnvironmentCheckService.check - the runtime a proposed start command n
   });
 
   it('adds nothing for a null or unrecognized start command', async () => {
-    const service = new EnvironmentCheckService(new FakeProbe(new Set(['node']), new Set([BROWSERS_DIR])));
+    const service = new EnvironmentCheckService(new FakeProbe(new Set(['node']), new Set([CHROMIUM_PATH])));
 
     expect((await service.check(TargetType.Web, PROJECT_ROOT, null, [])).map((i) => i.name)).toEqual([
       'Node.js',
@@ -150,7 +152,7 @@ describe('requiredRuntimesFor', () => {
 
 describe('EnvironmentCheckService.check - mobile/desktop with no recognized framework evidence', () => {
   it('returns a single honest "not built yet" entry for mobile when nothing matches', async () => {
-    const service = new EnvironmentCheckService(new FakeProbe(new Set(['node']), new Set([BROWSERS_DIR])));
+    const service = new EnvironmentCheckService(new FakeProbe(new Set(['node']), new Set([CHROMIUM_PATH])));
 
     const items = await service.check(TargetType.Mobile, PROJECT_ROOT, null, []);
 
@@ -185,7 +187,7 @@ describe('EnvironmentCheckService.check - mobile/desktop grounded in real detect
 
     const items = await service.check(TargetType.Mobile, PROJECT_ROOT, null, androidEvidence);
 
-    expect(items).toEqual([{ name: 'Android SDK (adb)', present: false, installHint: expect.any(String), installableBinary: null }]);
+    expect(items).toEqual([{ name: 'Android SDK (adb)', present: false, installHint: expect.any(String), installableBinary: null, installablePlaywrightBrowsers: false }]);
   });
 
   it('checks xcodebuild for an Xcode project', async () => {
@@ -194,7 +196,7 @@ describe('EnvironmentCheckService.check - mobile/desktop grounded in real detect
 
     const items = await service.check(TargetType.Mobile, PROJECT_ROOT, null, iosEvidence);
 
-    expect(items).toEqual([{ name: 'Xcode command line tools', present: true, installHint: null, installableBinary: null }]);
+    expect(items).toEqual([{ name: 'Xcode command line tools', present: true, installHint: null, installableBinary: null, installablePlaywrightBrowsers: false }]);
   });
 
   it('checks Node.js, adb, and xcodebuild for React Native - deduped even with android/ios evidence also present', async () => {
@@ -217,7 +219,7 @@ describe('EnvironmentCheckService.check - mobile/desktop grounded in real detect
 
     const items = await service.check(TargetType.Mobile, PROJECT_ROOT, null, flutterEvidence);
 
-    expect(items).toEqual([{ name: 'Flutter SDK', present: false, installHint: expect.any(String), installableBinary: null }]);
+    expect(items).toEqual([{ name: 'Flutter SDK', present: false, installHint: expect.any(String), installableBinary: null, installablePlaywrightBrowsers: false }]);
   });
 
   it('checks Node.js for an Electron desktop project', async () => {
@@ -226,7 +228,7 @@ describe('EnvironmentCheckService.check - mobile/desktop grounded in real detect
 
     const items = await service.check(TargetType.Desktop, PROJECT_ROOT, null, electronEvidence);
 
-    expect(items).toEqual([{ name: 'Node.js', present: true, installHint: null, installableBinary: null }]);
+    expect(items).toEqual([{ name: 'Node.js', present: true, installHint: null, installableBinary: null, installablePlaywrightBrowsers: false }]);
   });
 
   it('checks cargo and Node.js for a Tauri project', async () => {
@@ -244,7 +246,7 @@ describe('EnvironmentCheckService.check - mobile/desktop grounded in real detect
 
     const items = await service.check(TargetType.Desktop, PROJECT_ROOT, null, dotnetEvidence);
 
-    expect(items).toEqual([{ name: '.NET SDK', present: true, installHint: null, installableBinary: null }]);
+    expect(items).toEqual([{ name: '.NET SDK', present: true, installHint: null, installableBinary: null, installablePlaywrightBrowsers: false }]);
   });
 });
 
@@ -254,17 +256,5 @@ describe('requiredRuntimesForFrameworks', () => {
       [],
     );
     expect(requiredRuntimesForFrameworks([])).toEqual([]);
-  });
-});
-
-describe('playwrightBrowsersDir', () => {
-  it('honours PLAYWRIGHT_BROWSERS_PATH when set, overriding the platform default', () => {
-    expect(playwrightBrowsersDir('darwin', '/home/me', { PLAYWRIGHT_BROWSERS_PATH: '/custom/path' })).toBe(
-      '/custom/path',
-    );
-  });
-
-  it('falls back to a platform-specific default cache directory', () => {
-    expect(playwrightBrowsersDir('linux', '/home/me', {})).toBe('/home/me/.cache/ms-playwright');
   });
 });

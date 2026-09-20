@@ -1,11 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { homedir } from 'node:os';
 import type { Browser, Page } from 'playwright';
 import { chromium } from 'playwright';
 import type { RunRecord, RunResult, RunStepResult, TestStepAction } from '@shared/ipc-contract';
 import { effectiveTargetType } from '@shared/ipc-contract';
 import type { EnvironmentProbe } from './EnvironmentCheckService';
-import { NodeEnvironmentProbe, playwrightBrowsersDir } from './EnvironmentCheckService';
+import { NodeEnvironmentProbe } from './EnvironmentCheckService';
 import type { ProjectDataOwner } from './ProjectService';
 import type { ProjectRepository } from './ProjectStore';
 import type { RunRepository } from './RunStore';
@@ -163,8 +162,12 @@ export class TestRunnerService implements ProjectDataOwner {
       return { ok: false, error: 'UNSUPPORTED_TARGET' };
     }
 
-    const browsersDir = playwrightBrowsersDir(process.platform, homedir(), process.env);
-    const browsersPresent = await this.probe.pathExists(browsersDir);
+    // Same exact-binary check EnvironmentCheckService's checklist item
+    // uses - the coarse "does the cache directory exist" check this
+    // replaced could pass while the specific build chromium.launch() below
+    // needs was still missing, letting a raw Playwright launch exception
+    // escape as a RUN_FAILED instead of this clean, expected error.
+    const browsersPresent = await this.probe.pathExists(chromium.executablePath());
     if (!browsersPresent) {
       return { ok: false, error: 'BROWSER_NOT_READY' };
     }

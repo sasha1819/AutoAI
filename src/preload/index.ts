@@ -19,7 +19,7 @@ import type {
   McpServerEntry,
   ModelPreference,
   MoveTestCaseInput,
-  OnboardingResult,
+  PlaywrightBrowserInstallResult,
   Project,
   ProjectScanResult,
   RegisterInput,
@@ -33,7 +33,8 @@ import type {
   TargetType,
   TestCaseResult,
   TestPlan,
-  UserRole,
+  UrlOpenResult,
+  UrlReachabilityResult,
 } from '@shared/ipc-contract';
 
 /**
@@ -49,10 +50,6 @@ const autoaiApi: AutoaiApi = {
       ipcRenderer.invoke(IpcChannel.AuthRegister, input),
     login: (input: LoginInput): Promise<AuthResult> => ipcRenderer.invoke(IpcChannel.AuthLogin, input),
     logout: (): Promise<void> => ipcRenderer.invoke(IpcChannel.AuthLogout),
-  },
-  onboarding: {
-    setRole: (role: UserRole): Promise<OnboardingResult> =>
-      ipcRenderer.invoke(IpcChannel.OnboardingSetRole, role),
   },
   session: {
     getCurrent: (): Promise<SessionState | null> => ipcRenderer.invoke(IpcChannel.SessionGetCurrent),
@@ -125,6 +122,14 @@ const autoaiApi: AutoaiApi = {
   systemTool: {
     install: (binary: string): Promise<SystemToolInstallResult> =>
       ipcRenderer.invoke(IpcChannel.SystemToolInstall, binary),
+  },
+  playwrightBrowsers: {
+    install: (): Promise<PlaywrightBrowserInstallResult> => ipcRenderer.invoke(IpcChannel.PlaywrightBrowsersInstall),
+  },
+  url: {
+    open: (url: string): Promise<UrlOpenResult> => ipcRenderer.invoke(IpcChannel.SystemOpenUrl, url),
+    checkReachable: (url: string): Promise<UrlReachabilityResult> =>
+      ipcRenderer.invoke(IpcChannel.SystemCheckUrlReachable, url),
   },
 };
 

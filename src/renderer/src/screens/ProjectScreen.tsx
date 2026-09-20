@@ -16,6 +16,7 @@ import { TargetTypeSelect } from '../components/TargetTypeSelect';
 import { TestCaseDetail } from '../components/TestCaseDetail';
 import { TestCaseList } from '../components/TestCaseList';
 import { TransportFailedNotice } from '../components/TransportFailedNotice';
+import { UrlActions } from '../components/UrlActions';
 import { relativeTime } from '../lib/projectDisplay';
 import type { AreaSelection } from '../lib/testPlanDisplay';
 import {
@@ -311,6 +312,7 @@ function ProjectBody({ project }: { readonly project: Project }): JSX.Element {
         </span>
         <TargetTypeSelect project={project} />
         <ProjectUrlField project={project} />
+        {project.baseUrl && <UrlActions url={project.baseUrl} />}
         <TestCaseFolderRow project={project} />
         <span className="shrink-0 text-caption text-faint">
           added {relativeTime(project.createdAt, Date.now())}
@@ -345,13 +347,16 @@ function ProjectBody({ project }: { readonly project: Project }): JSX.Element {
         </p>
       </ConfirmDialog>
 
-      <RunStrip project={project} />
-
-      <DetectionSummary project={project} />
-
+      {/* The two actions that actually get a project running come first,
+          right after the header - run history and detection detail are
+          secondary once a project is already added. */}
       <ProjectScanCard project={project} onCaseCreated={handleScanCaseCreated} />
 
       <ProjectSetupCard project={project} />
+
+      <RunStrip project={project} />
+
+      <DetectionSummary project={project} />
 
       <CaseChatCard project={project} onCaseCreated={handleScanCaseCreated} />
 

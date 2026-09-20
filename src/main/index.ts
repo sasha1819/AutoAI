@@ -10,6 +10,9 @@ import { EnvironmentCheckService } from './services/EnvironmentCheckService';
 import { McpServerService } from './services/McpServerService';
 import { McpServerStore } from './services/McpServerStore';
 import { SystemToolInstaller } from './services/SystemToolInstaller';
+import { PlaywrightBrowserInstaller } from './services/PlaywrightBrowserInstaller';
+import { ElectronExternalOpener, UrlOpener } from './services/UrlOpener';
+import { UrlReachabilityChecker } from './services/UrlReachabilityChecker';
 import { ModelPreferenceService } from './services/ModelPreferenceService';
 import { ModelPreferenceStore } from './services/ModelPreferenceStore';
 import { ProfileStore } from './services/ProfileStore';
@@ -110,6 +113,9 @@ void app.whenReady().then(() => {
   const mcpServerStore = new McpServerStore();
   const mcpServerService = new McpServerService(mcpServerStore);
   const systemToolInstaller = new SystemToolInstaller();
+  const playwrightBrowserInstaller = new PlaywrightBrowserInstaller(app.getAppPath());
+  const urlOpener = new UrlOpener(new ElectronExternalOpener());
+  const urlReachabilityChecker = new UrlReachabilityChecker();
 
   const assistantService = new AssistantService(agentRunner, {
     projectRepository: projectStore,
@@ -132,6 +138,9 @@ void app.whenReady().then(() => {
     assistantService,
     mcpServerService,
     systemToolInstaller,
+    playwrightBrowserInstaller,
+    urlOpener,
+    urlReachabilityChecker,
   );
 
   createMainWindow();

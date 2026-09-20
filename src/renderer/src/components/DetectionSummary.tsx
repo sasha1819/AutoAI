@@ -1,6 +1,5 @@
 import { TARGET_TYPE_LABEL, TargetType } from '@shared/ipc-contract';
 import type { Project } from '@shared/ipc-contract';
-import { useProjectsStore } from '../state/useProjectsStore';
 
 const CONFIDENCE_COPY: Record<string, string> = {
   high: 'High confidence',
@@ -13,38 +12,24 @@ interface DetectionSummaryProps {
 }
 
 /** What the (deliberately simple, v1) detection heuristic found for this
- * project, and the override that always wins over it - see
- * `effectiveTargetType` in the shared contract. */
+ * project, read-only - `TargetTypeSelect` (the pill in the header row) is
+ * the one real control for `overriddenTargetType`; this used to duplicate
+ * it with a second `<select>` writing the exact same field, which is
+ * exactly the kind of "two controls for one value" this app's own
+ * conventions rule out elsewhere. See `effectiveTargetType` in the shared
+ * contract. */
 export function DetectionSummary({ project }: DetectionSummaryProps): JSX.Element {
-  const setOverride = useProjectsStore((s) => s.setOverride);
   const detection = project.detection;
   const effective = project.overriddenTargetType ?? detection?.targetType ?? TargetType.Unknown;
 
   return (
     <div className="rounded-lg border border-hairline bg-raised p-5">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <p className="text-body font-medium text-ink">{TARGET_TYPE_LABEL[effective]}</p>
-          {detection && !project.overriddenTargetType && (
-            <p className="text-caption text-muted">{CONFIDENCE_COPY[detection.confidence]}</p>
-          )}
-          {project.overriddenTargetType && <p className="text-caption text-accent-deep">Set manually</p>}
-        </div>
-
-        <select
-          value={project.overriddenTargetType ?? ''}
-          onChange={(e) => void setOverride(project.id, (e.target.value as TargetType) || null)}
-          className="h-control rounded-md border border-edge bg-raised px-2.5 text-caption text-quiet outline-none focus:border-accent"
-        >
-          <option value="">Auto-detected</option>
-          {Object.values(TargetType)
-            .filter((t) => t !== TargetType.Unknown)
-            .map((t) => (
-              <option key={t} value={t}>
-                Override: {TARGET_TYPE_LABEL[t]}
-              </option>
-            ))}
-        </select>
+      <div>
+        <p className="text-body font-medium text-ink">{TARGET_TYPE_LABEL[effective]}</p>
+        {detection && !project.overriddenTargetType && (
+          <p className="text-caption text-muted">{CONFIDENCE_COPY[detection.confidence]}</p>
+        )}
+        {project.overriddenTargetType && <p className="text-caption text-accent-deep">Set manually</p>}
       </div>
 
       {detection && detection.evidence.length > 0 && (

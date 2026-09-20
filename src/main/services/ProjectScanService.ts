@@ -1,5 +1,5 @@
 import type { Project, ProjectScanResult, ProjectSetupProposal, ScanRunResult, SuggestedFlow } from '@shared/ipc-contract';
-import { effectiveTargetType } from '@shared/ipc-contract';
+import { effectiveTargetType, TargetType } from '@shared/ipc-contract';
 import type { AgentRunner } from './AgentRunner';
 import type { EnvironmentChecker } from './EnvironmentCheckService';
 import type { ProjectDataOwner } from './ProjectService';
@@ -43,8 +43,9 @@ const SCAN_OUTPUT_SCHEMA: Record<string, unknown> = {
     },
     environmentNotes: { type: 'array', items: { type: 'string' } },
     setup: SETUP_PROPOSAL_SCHEMA,
+    detectedTargetType: { type: ['string', 'null'], enum: [TargetType.Mobile, TargetType.Web, TargetType.Desktop, null] },
   },
-  required: ['description', 'suggestedFlows', 'environmentNotes', 'setup'],
+  required: ['description', 'suggestedFlows', 'environmentNotes', 'setup', 'detectedTargetType'],
   additionalProperties: false,
 };
 
@@ -97,16 +98,35 @@ export class ProjectScanService implements ProjectDataOwner {
       return { ok: false, error: 'SCAN_FAILED', detail: 'Claude did not return the expected structured result.' };
     }
 
+    // Only fills in a target type nobody has settled yet - never overwrites
+    // a manual override or a detection heuristic that already found
+    // something. Applied (not just proposed) before the environment check
+    // below, so a project that was Unknown a moment ago gets a checklist
+    // that actually matches what it turned out to be, in the same scan.
+    let appliedTargetType: TargetType | null = null;
+    let effectiveProject = project;
+    if (
+      effectiveTargetType(project) === TargetType.Unknown &&
+      project.overriddenTargetType === null &&
+      parsed.detectedTargetType !== null
+    ) {
+      const updated = this.projectRepository.update(projectId, { overriddenTargetType: parsed.detectedTargetType });
+      if (updated) {
+        appliedTargetType = parsed.detectedTargetType;
+        effectiveProject = updated;
+      }
+    }
+
     // Runs only now, not in parallel with the agent call above, because it
     // needs to know what the scan actually proposed running - checking for
     // PHP only makes sense once `setup.startCommand` says the project needs
     // `php -S ...`. The selector scan above has no such dependency and
     // stays parallel with the agent call.
     const environment = await this.environmentChecker.check(
-      effectiveTargetType(project),
-      project.localPath,
+      effectiveTargetType(effectiveProject),
+      effectiveProject.localPath,
       parsed.setup?.startCommand ?? null,
-      project.detection?.evidence ?? [],
+      effectiveProject.detection?.evidence ?? [],
     );
 
     const result: ProjectScanResult = {
@@ -119,7 +139,7 @@ export class ProjectScanService implements ProjectDataOwner {
     };
 
     this.scanRepository.set(projectId, result);
-    return { ok: true, result };
+    return { ok: true, result, appliedTargetType };
   }
 
   public getLast(projectId: string): ProjectScanResult | null {
@@ -148,11 +168,12 @@ function buildPrompt(project: Project, selectors: SelectorScanResult): string {
   const lines: string[] = [
     `You are looking at a real project called "${project.name}" at the current working directory. Explore it with Read, Grep, and Glob to understand what it is and how it is structured - you have no ability to modify anything here, so explore as freely as you need to.`,
     '',
-    'Produce exactly four things, matching the required output shape:',
+    'Produce exactly five things, matching the required output shape:',
     '1. `description` - a plain-language paragraph (roughly 3-6 sentences) describing the project\'s structure and purpose, written for someone who has not opened the code yet.',
     '2. `suggestedFlows` - a handful (aim for 3-8) of realistic end-to-end test flows a person could run against this project. Each needs a short `name`, a one-sentence `description`, ordered plain-language `steps`, and - only when you actually found a matching real selector, either below or while reading the code yourself - a `targetSelectors` list of the exact id/name/data-testid/for/aria-label values a test could target. Never invent a selector you did not actually see. Also produce a `script` for each flow, per the rules below.',
     '3. `environmentNotes` - short strings (a sentence or less each) for anything you noticed while reading that a test runner would need in order to actually exercise this project: a database dependency, a required environment variable, a third-party API key, that kind of thing. An empty array is correct if you saw nothing like that.',
     '4. `setup` - what it would actually take to install this project\'s dependencies and start it, or null if you are not confident enough to propose one. Only ever propose a command you can ground in a real file you read: a `composer.json` means `composer install`; a `package.json` with a `dev` or `start` script means `npm run <that script>`; plain `.php` files with no framework marker mean `php -S localhost:8000 -t .`; that kind of reasoning. `installCommands` is an ordered list of shell commands (empty array if nothing needs installing). `startCommand` is the one command that actually runs the project, or null if you cannot confidently identify one - in that case `startCommandExplanation` says why in a sentence, otherwise it is null. `expectedBasePath` is a literal sub-path (like `/taaza`) you actually found hardcoded somewhere in the project\'s own code - a verification link, a base-URL constant, a config file - where the app expects to be served, as distinct from whatever host:port it runs on. Null unless you genuinely saw one; do not infer it from the folder or project name. Never invent a command or a path that does not match what you actually found.',
+    '5. `detectedTargetType` - "mobile", "web", or "desktop" if what you read makes it clearly one of those (a package.json with react-native/expo, or an index.html/web server entry point, or a desktop-app manifest like electron-builder.yml or a .csproj), otherwise `null`. This only fills in a target type that is still unset and unconfirmed elsewhere in the app - like everything else here, only report it when you are actually confident from what you read, never guess to fill in the field.',
     '',
     'Rules for each flow\'s `script` (a machine-executable subset of its `steps`):',
     ...SCRIPT_GROUNDING_RULES.map((rule) => `- ${rule}`),
@@ -168,7 +189,10 @@ interface ParsedScanOutput {
   readonly suggestedFlows: SuggestedFlow[];
   readonly environmentNotes: string[];
   readonly setup: ProjectSetupProposal | null;
+  readonly detectedTargetType: TargetType | null;
 }
+
+const DETECTABLE_TARGET_TYPES: readonly TargetType[] = [TargetType.Mobile, TargetType.Web, TargetType.Desktop];
 
 /**
  * Defensive parsing of Claude's structured output. `outputFormat` constrains
@@ -186,11 +210,18 @@ function parseStructuredOutput(raw: unknown): ParsedScanOutput | null {
   const suggestedFlowsRaw = candidate['suggestedFlows'];
   const environmentNotesRaw = candidate['environmentNotes'];
   const setupRaw = candidate['setup'];
+  // Same leniency `setup` already gets below - an omitted key and an
+  // explicit null mean the same thing to this parser.
+  const detectedTargetTypeRaw = candidate['detectedTargetType'] ?? null;
 
   if (typeof description !== 'string') return null;
   if (!Array.isArray(suggestedFlowsRaw)) return null;
   if (!Array.isArray(environmentNotesRaw)) return null;
   if (!environmentNotesRaw.every((note) => typeof note === 'string')) return null;
+  if (detectedTargetTypeRaw !== null && !DETECTABLE_TARGET_TYPES.includes(detectedTargetTypeRaw as TargetType)) {
+    return null;
+  }
+  const detectedTargetType = detectedTargetTypeRaw as TargetType | null;
 
   const suggestedFlows: SuggestedFlow[] = [];
   for (const entry of suggestedFlowsRaw) {
@@ -199,13 +230,15 @@ function parseStructuredOutput(raw: unknown): ParsedScanOutput | null {
     suggestedFlows.push(flow);
   }
 
+  const environmentNotes = environmentNotesRaw as string[];
+
   if (setupRaw !== null && setupRaw !== undefined) {
     const setup = parseSetupProposal(setupRaw);
     if (!setup) return null;
-    return { description, suggestedFlows, environmentNotes: environmentNotesRaw as string[], setup };
+    return { description, suggestedFlows, environmentNotes, setup, detectedTargetType };
   }
 
-  return { description, suggestedFlows, environmentNotes: environmentNotesRaw as string[], setup: null };
+  return { description, suggestedFlows, environmentNotes, setup: null, detectedTargetType };
 }
 
 /** Same defensive-parsing reasoning as `parseSuggestedFlow` in

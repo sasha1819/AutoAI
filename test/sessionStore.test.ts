@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { AutoaiApi, SessionState } from '../src/shared/ipc-contract';
-import { UserRole } from '../src/shared/ipc-contract';
 
 /**
  * The renderer reaches main through `window.autoai`, captured once by
@@ -19,13 +18,6 @@ const fakeApi = {
     register: async () => ({ ok: true as const, session: state.session as SessionState }),
     login: async () => ({ ok: true as const, session: state.session as SessionState }),
     logout: async () => undefined,
-  },
-  onboarding: {
-    setRole: async (role: UserRole) => {
-      const session = { ...(state.session as SessionState), role };
-      state.session = session;
-      return { ok: true as const, session };
-    },
   },
   session: {
     getCurrent: async () => state.session,
@@ -71,7 +63,6 @@ function profile(overrides: Partial<SessionState> = {}): SessionState {
     id: 'p1',
     name: 'Alex Rivera',
     email: 'alex@example.com',
-    role: UserRole.AutomationEngineer,
     ...overrides,
   };
 }
@@ -115,23 +106,12 @@ describe('useSessionStore flow gate', () => {
     expect(useSessionStore.getState().stage).toBe('needs-login');
   });
 
-  it('goes straight to ready for a registered profile with a live session - no onboarding gate', async () => {
+  it('goes straight to ready for a registered profile with a live session', async () => {
     state.hasProfile = true;
     state.session = profile();
 
     await useSessionStore.getState().bootstrap();
 
     expect(useSessionStore.getState().stage).toBe('ready');
-  });
-
-  it('setRole changes the role without affecting stage', async () => {
-    state.hasProfile = true;
-    state.session = profile({ role: UserRole.ManualTester });
-    await useSessionStore.getState().bootstrap();
-
-    await useSessionStore.getState().setRole(UserRole.AutomationEngineer);
-
-    expect(useSessionStore.getState().stage).toBe('ready');
-    expect(useSessionStore.getState().session?.role).toBe(UserRole.AutomationEngineer);
   });
 });

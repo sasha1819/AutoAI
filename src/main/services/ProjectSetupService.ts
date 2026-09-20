@@ -9,6 +9,14 @@ import type { ScanRepository } from './ScanStore';
 /** Long enough to catch an immediate crash-on-boot (a missing dependency, a
  *  bad port) without meaningfully slowing down "Set up this project". */
 const START_GRACE_MS = 1500;
+/** Bounds every one-shot command this app ever spawns (installs, brew,
+ *  `npx playwright install`) - long enough for a real slow-network install
+ *  observed this session, short of "forever". Without this, a command that
+ *  hangs (an interactive prompt, a stalled download) left the calling
+ *  store's `running`/`installing` flag stuck true permanently - there was
+ *  no other path back to false, since nothing here ever resolved or
+ *  rejected on its own. */
+export const RUN_TO_COMPLETION_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_OUTPUT_CHARS = 4000;
 const REJECTED_MESSAGE = "Claude suggested this, AutoAI won't run it automatically.";
 
@@ -111,14 +119,51 @@ export class NodeProcessSpawner implements ProcessSpawner {
       const child = spawn(command, { shell: true, cwd });
       let stdout = '';
       let stderr = '';
+      let settled = false;
+
+      // Not detached (unlike spawnDetached below), so this child shares
+      // AutoAI's own process group - process.kill(-pid) would be wrong
+      // here, it would hit the app itself. SIGTERM first, SIGKILL shortly
+      // after if that alone didn't finish the job.
+      const timeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        try {
+          child.kill('SIGTERM');
+          const killTimer = setTimeout(() => {
+            try {
+              child.kill('SIGKILL');
+            } catch {
+              // already gone
+            }
+          }, 2000);
+          killTimer.unref();
+        } catch {
+          // best-effort only
+        }
+        const minutes = RUN_TO_COMPLETION_TIMEOUT_MS / 60_000;
+        reject(new Error(`Command timed out after ${minutes}m: ${command}`));
+      }, RUN_TO_COMPLETION_TIMEOUT_MS);
+      timeout.unref();
+
       child.stdout?.on('data', (chunk: Buffer) => {
         stdout += String(chunk);
       });
       child.stderr?.on('data', (chunk: Buffer) => {
         stderr += String(chunk);
       });
-      child.once('error', (error) => reject(error));
-      child.once('exit', (code) => resolve({ exitCode: code, stdout: truncate(stdout), stderr: truncate(stderr) }));
+      child.once('error', (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        reject(error);
+      });
+      child.once('exit', (code) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        resolve({ exitCode: code, stdout: truncate(stdout), stderr: truncate(stderr) });
+      });
     });
   }
 

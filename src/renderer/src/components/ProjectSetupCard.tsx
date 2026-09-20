@@ -5,6 +5,7 @@ import { useScanStore } from '../state/useScanStore';
 import { useSetupStore } from '../state/useSetupStore';
 import { EnvironmentChecklistRow } from './EnvironmentChecklistRow';
 import { PrimaryButton } from './PrimaryButton';
+import { UrlActions } from './UrlActions';
 
 const SETUP_ERROR_COPY: Record<SetupErrorCode, string> = {
   PROJECT_NOT_FOUND: "AutoAI couldn't find this project anymore.",
@@ -193,9 +194,11 @@ export function ProjectSetupCard({ project }: { readonly project: Project }): JS
       {shownResult && (
         <div className="flex flex-col gap-3 border-t border-hairline pt-4">
           {shownResult.baseUrlAutoFilled && (
-            <div className="rounded-md border border-ok/40 bg-surface px-3.5 py-2.5 text-caption text-quiet">
-              Project URL auto-filled to{' '}
-              <code className="text-ink">{shownResult.baseUrlAutoFilled}</code>.
+            <div className="flex flex-col gap-2 rounded-md border border-ok/40 bg-surface px-3.5 py-2.5">
+              <p className="text-caption text-quiet">
+                Project URL auto-filled to <code className="text-ink">{shownResult.baseUrlAutoFilled}</code>.
+              </p>
+              <UrlActions url={shownResult.baseUrlAutoFilled} />
             </div>
           )}
 

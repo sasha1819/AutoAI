@@ -14,7 +14,7 @@ description: Component, styling, state, and flow conventions for AutoAI's Electr
 - `needs-login` → LoginScreen
 - `ready` → the routed app (Home, Projects, a project, Runs, Reports, Settings)
 
-There is no onboarding stage. A new profile is created with a real default role (`AutomationEngineer`, set server-side in `AuthService`) rather than gating entry on a role picker — someone changes it afterward from the role pill in `AppShell`'s top bar or the role section in Settings, both of which write through the same `onboarding:set-role` channel `AuthService.setRole` always used. `OnboardingScreen` and the dev screen switcher (`DevScreenSwitcher`) are both gone from the codebase — don't reintroduce a reference to either.
+There is no onboarding stage, and no role concept at all — `SessionState` is just `id`/`name`/`email`. `OnboardingScreen`, `DevScreenSwitcher`, and the whole role pill/picker (`UserRole`, `RoleCard`, `RoleSwitcher`, `onboarding:set-role`) are all gone from the codebase, removed once it was confirmed nothing in the app actually branched on role — don't reintroduce a reference to any of them.
 
 `stageFor(hasProfile, session)` in `useSessionStore.ts` is the only place this decision is made. A new screen that gates on auth/session state plugs into this function and the `BootstrapStage` union — it does not add its own `if (!session) redirect()` logic in a component.
 
@@ -41,7 +41,6 @@ Reuse before creating:
 - `FormField` — every text input goes through this (label + input, accessible by construction, password reveal built in). Don't hand-roll `<input>`.
 - `PrimaryButton` — the one button style: `variant` primary/secondary, `size` md (36px in-page) / lg (42px end-of-form). Don't introduce a second visual button system.
 - `PillGroup` — "pick one of a small fixed set" (target type). `SelectField` is the same job when there are too many options for a pill row.
-- `RoleCard` — selection-card pattern, now used in Settings' role section (there is no Onboarding screen to use it in anymore); reuse for any future "pick one of N options" UI rather than a new pattern.
 - `AssistantPanel` ("Ask AutoAI") — a persistent dock along the bottom of the content area, mounted once in `AppShell`, past the left rail so it never covers it. Always visible, nothing to open or close; the message list only takes up space once there's something in it, otherwise it's a slim input row. A new "assistant can navigate here" tool follows the same pattern `open_project_setup` already does — the panel reacts to a pending-navigation field in `useAssistantStore`, the assistant itself never navigates or executes anything.
 - `TextAreaField` — `FormField`'s sibling for the one genuinely multi-line input, the steps of a test case.
 - `SectionEmpty` — a section with nothing in it. It says why it is empty, including when the reason is that the feature isn't built. It never draws a sample row or a button that would have to apologise when clicked.
@@ -84,13 +83,8 @@ Motion is a small, deliberate set of primitives in `tailwind.config.js`, not a g
 | `animate-dock-in` | the assistant dock's own mount | 260ms fade + 12px rise |
 | `animate-message-in` | each message bubble in the assistant dock | 180ms fade + 6px rise, per message as it's added |
 
-## Role-adaptive UI
-`UserRole` = `manual_tester | automation_engineer | qa_lead` (`ROLE_OPTIONS` in `src/shared/ipc-contract.ts` has the copy). This isn't just screen selection — it's a vocabulary/complexity dial. Manual QA Tester copy stays plain-language and outcome-focused ("turn what you already do into automated runs"); Automation Engineer / QA Lead copy can use automation/config terminology directly. When adding UI a Manual QA Tester will see, default to the plainer register and check both against the existing Home screen split.
-
-Every profile starts as Automation Engineer (`AuthService`'s `DEFAULT_ROLE`) the moment it's registered — there's no "pick your role" gate to write copy for before `ready`. Role-adaptive copy only ever has to account for someone changing role later via the pill or Settings, never for an unset/null role.
-
 ## Settings sections
-`SettingsScreen.tsx` is a stack of self-contained `<Section>` functions, one per concern, each owning its own store slice and IPC calls — add a new preference or connection as another section here rather than growing an existing one. Current sections: Claude connection (`ClaudeConnectionSection`), model/effort preference for scans and runs (`ModelPreferenceSection`), user-added MCP servers reachable only from Ask AutoAI (`McpServersSection`), and the role picker (`RoleCard` grid).
+`SettingsScreen.tsx` is a stack of self-contained `<Section>` functions, one per concern, each owning its own store slice and IPC calls — add a new preference or connection as another section here rather than growing an existing one. Current sections: Claude connection (`ClaudeConnectionSection`), model/effort preference for scans and runs (`ModelPreferenceSection`), and user-added MCP servers reachable only from Ask AutoAI (`McpServersSection`).
 
 ## Suggest-and-confirm, not silent execution
 Anywhere AutoAI can act on the machine (a project's Setup card, and now the environment checklist's per-item "Install" button in `ProjectScanCard`), the pattern is the same: show the literal command about to run, require one explicit click to run it, then show the real output — never execute on render, never hide the command behind a generic "Fix it" label. `SystemToolInstaller`'s closed, hardcoded binary→formula map (not a general allowlist) is what makes the checklist's Install button safe to build this way; a new "AutoAI can fix this for you" affordance should be checked against that same "is the exact command hardcoded, or could it come from untrusted project/model content" question before it gets a button.

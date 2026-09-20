@@ -1,6 +1,6 @@
 import { BrowserWindow, dialog, ipcMain } from 'electron';
 import { IpcChannel } from '@shared/ipc-contract';
-import type { LoginInput, RegisterInput, TargetType, UserRole } from '@shared/ipc-contract';
+import type { LoginInput, RegisterInput, TargetType } from '@shared/ipc-contract';
 import type { AssistantService } from '../services/AssistantService';
 import type { AuthService } from '../services/AuthService';
 import type { CaseGenerationService } from '../services/CaseGenerationService';
@@ -8,6 +8,9 @@ import type { ClaudeConnectionService } from '../services/ClaudeConnectionServic
 import { parseAddMcpServerInput } from '../services/McpServerService';
 import type { McpServerService } from '../services/McpServerService';
 import type { SystemToolInstaller } from '../services/SystemToolInstaller';
+import type { PlaywrightBrowserInstaller } from '../services/PlaywrightBrowserInstaller';
+import type { UrlOpener } from '../services/UrlOpener';
+import type { UrlReachabilityChecker } from '../services/UrlReachabilityChecker';
 import { parseModelPreference } from '../services/ModelPreferenceService';
 import type { ModelPreferenceService } from '../services/ModelPreferenceService';
 import type { ProjectSetupService } from '../services/ProjectSetupService';
@@ -46,6 +49,9 @@ export function registerIpcHandlers(
   assistantService: AssistantService,
   mcpServerService: McpServerService,
   systemToolInstaller: SystemToolInstaller,
+  playwrightBrowserInstaller: PlaywrightBrowserInstaller,
+  urlOpener: UrlOpener,
+  urlReachabilityChecker: UrlReachabilityChecker,
 ): void {
   ipcMain.handle(IpcChannel.AuthHasProfile, () => {
     return authService.hasProfile();
@@ -61,10 +67,6 @@ export function registerIpcHandlers(
 
   ipcMain.handle(IpcChannel.AuthLogout, () => {
     return authService.logout();
-  });
-
-  ipcMain.handle(IpcChannel.OnboardingSetRole, (_event, role: UserRole) => {
-    return authService.setRole(role);
   });
 
   ipcMain.handle(IpcChannel.SessionGetCurrent, () => {
@@ -236,5 +238,19 @@ export function registerIpcHandlers(
   ipcMain.handle(IpcChannel.SystemToolInstall, (_event, binary: unknown) => {
     if (typeof binary !== 'string') return { ok: false, error: 'NOT_INSTALLABLE' };
     return systemToolInstaller.install(binary);
+  });
+
+  ipcMain.handle(IpcChannel.PlaywrightBrowsersInstall, () => {
+    return playwrightBrowserInstaller.install();
+  });
+
+  ipcMain.handle(IpcChannel.SystemOpenUrl, (_event, url: unknown) => {
+    if (typeof url !== 'string') return { ok: false, error: 'INVALID_URL' };
+    return urlOpener.open(url);
+  });
+
+  ipcMain.handle(IpcChannel.SystemCheckUrlReachable, (_event, url: unknown) => {
+    if (typeof url !== 'string') return { reachable: false, status: null };
+    return urlReachabilityChecker.check(url);
   });
 }

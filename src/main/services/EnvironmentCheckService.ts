@@ -1,8 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promises as fs } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { chromium } from 'playwright';
 import type { DetectionEvidence, EnvironmentCheckItem, TargetType } from '@shared/ipc-contract';
 import { TargetType as Target } from '@shared/ipc-contract';
 import { isInstallableBinary } from './SystemToolInstaller';
@@ -48,25 +47,6 @@ export class NodeEnvironmentProbe implements EnvironmentProbe {
   }
 }
 
-/** Playwright's own default browser cache directory, so "browsers
- * installed" can be checked without running anything - a real, deterministic
- * filesystem fact rather than shelling out to `npx playwright ...`, which
- * would risk a network install attempt. Respects the same
- * `PLAYWRIGHT_BROWSERS_PATH` override Playwright itself honours. Exported
- * so tests can compute the same path the service checks. */
-export function playwrightBrowsersDir(
-  platform: NodeJS.Platform,
-  home: string,
-  env: NodeJS.ProcessEnv,
-): string {
-  const override = env['PLAYWRIGHT_BROWSERS_PATH'];
-  if (override) return override;
-
-  if (platform === 'darwin') return join(home, 'Library', 'Caches', 'ms-playwright');
-  if (platform === 'win32') return join(home, 'AppData', 'Local', 'ms-playwright');
-  return join(home, '.cache', 'ms-playwright');
-}
-
 export interface EnvironmentChecker {
   check(
     targetType: TargetType,
@@ -110,6 +90,7 @@ const MOBILE_STUB: EnvironmentCheckItem = {
   present: false,
   installHint: null,
   installableBinary: null,
+  installablePlaywrightBrowsers: false,
 };
 
 const DESKTOP_STUB: EnvironmentCheckItem = {
@@ -117,6 +98,7 @@ const DESKTOP_STUB: EnvironmentCheckItem = {
   present: false,
   installHint: null,
   installableBinary: null,
+  installablePlaywrightBrowsers: false,
 };
 
 type RuntimeCheck = { readonly binary: string; readonly label: string };
@@ -216,6 +198,7 @@ export class EnvironmentCheckService implements EnvironmentChecker {
         present,
         installHint: present ? null : `Install ${runtime.label}, then check again.`,
         installableBinary: !present && isInstallableBinary(runtime.binary) ? runtime.binary : null,
+        installablePlaywrightBrowsers: false,
       });
     }
     return items;
@@ -238,8 +221,12 @@ export class EnvironmentCheckService implements EnvironmentChecker {
    */
   private async checkWeb(_projectRoot: string, startCommand: string | null): Promise<EnvironmentCheckItem[]> {
     const nodePresent = await this.probe.commandAvailable('node', ['--version']);
-    const browsersDir = playwrightBrowsersDir(process.platform, homedir(), process.env);
-    const browsersPresent = await this.probe.pathExists(browsersDir);
+    // The exact binary the installed Playwright version expects, not just
+    // "does the browser cache directory exist" - a machine can have the
+    // directory (old or partial downloads) while missing the specific
+    // build TestRunnerService's own chromium.launch() needs, which used to
+    // report a false "Present" here.
+    const browsersPresent = await this.probe.pathExists(chromium.executablePath());
 
     const items: EnvironmentCheckItem[] = [
       {
@@ -250,12 +237,14 @@ export class EnvironmentCheckService implements EnvironmentChecker {
         // runs on, and https://nodejs.org isn't a one-command brew formula
         // story worth special-casing here.
         installableBinary: null,
+        installablePlaywrightBrowsers: false,
       },
       {
         name: 'Playwright browsers',
         present: browsersPresent,
         installHint: browsersPresent ? null : 'Run `npx playwright install` in the project, then check again.',
         installableBinary: null,
+        installablePlaywrightBrowsers: !browsersPresent,
       },
     ];
 
@@ -266,6 +255,7 @@ export class EnvironmentCheckService implements EnvironmentChecker {
         present,
         installHint: present ? null : `Install ${runtime.label}, then check again.`,
         installableBinary: !present && isInstallableBinary(runtime.binary) ? runtime.binary : null,
+        installablePlaywrightBrowsers: false,
       });
     }
 

@@ -1,5 +1,4 @@
 import Store from 'electron-store';
-import type { UserRole } from '@shared/ipc-contract';
 
 /**
  * The one thing that must never leave the main process: password hash +
@@ -12,7 +11,6 @@ export interface StoredProfile {
   readonly email: string;
   readonly passwordHash: string;
   readonly passwordSalt: string;
-  readonly role: UserRole | null;
   readonly loggedIn: boolean;
 }
 
@@ -30,7 +28,6 @@ export interface ProfileRepository {
   getRaw(): StoredProfile | undefined;
   save(profile: StoredProfile): void;
   setLoggedIn(loggedIn: boolean): void;
-  setRole(role: UserRole): void;
 }
 
 /**
@@ -67,11 +64,5 @@ export class ProfileStore implements ProfileRepository {
     const current = this.getRaw();
     if (!current) return;
     this.save({ ...current, loggedIn });
-  }
-
-  public setRole(role: UserRole): void {
-    const current = this.getRaw();
-    if (!current) return;
-    this.save({ ...current, role });
   }
 }

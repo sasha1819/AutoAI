@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
 import type { McpServerErrorCode } from '@shared/ipc-contract';
-import { CLAUDE_EFFORT_OPTIONS, CLAUDE_MODEL_OPTIONS, ROLE_OPTIONS } from '@shared/ipc-contract';
+import { CLAUDE_EFFORT_OPTIONS, CLAUDE_MODEL_OPTIONS } from '@shared/ipc-contract';
 import { AppShell } from '../components/AppShell';
 import { FormField } from '../components/FormField';
 import { PrimaryButton } from '../components/PrimaryButton';
-import { RoleCard } from '../components/RoleCard';
 import { SelectField } from '../components/SelectField';
 import { TextAreaField } from '../components/TextAreaField';
 import { ShieldCheckIcon } from '../components/Icons';
@@ -338,16 +337,14 @@ function ClaudeConnectionSection(): JSX.Element {
 
 /**
  * Everything else on this screen is backed by a channel that already
- * exists: the profile comes from `session:get-current`, the role picker
- * writes through `onboarding:set-role` (the same call onboarding makes),
- * and logging out is `auth:logout`.
+ * exists: the profile comes from `session:get-current`, logging out is
+ * `auth:logout`.
  *
  * Device setup is the one thing the design's Settings artboard carries that
  * still has no main-process side, so it stays out of this screen.
  */
 export function SettingsScreen(): JSX.Element {
   const session = useSessionStore((s) => s.session);
-  const setRole = useSessionStore((s) => s.setRole);
   const logout = useSessionStore((s) => s.logout);
 
   return (
@@ -359,28 +356,6 @@ export function SettingsScreen(): JSX.Element {
           </h2>
           <Field label="Name" value={session?.name ?? '—'} />
           <Field label="Email" value={session?.email ?? '—'} mono />
-        </section>
-
-        <section className="flex flex-col gap-3" aria-labelledby="role-heading">
-          <div className="flex flex-col gap-1.5">
-            <h2 id="role-heading" className="font-display text-section font-semibold text-ink">
-              How you work
-            </h2>
-            <p className="text-label text-muted">
-              This is a vocabulary dial, not a permission level. It changes how AutoAI writes to you
-              and how much it explains.
-            </p>
-          </div>
-          <div role="radiogroup" aria-labelledby="role-heading" className="flex flex-col gap-3">
-            {ROLE_OPTIONS.map((option) => (
-              <RoleCard
-                key={option.role}
-                option={option}
-                selected={session?.role === option.role}
-                onSelect={() => void setRole(option.role)}
-              />
-            ))}
-          </div>
         </section>
 
         <ClaudeConnectionSection />

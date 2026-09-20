@@ -18,7 +18,7 @@ function scanResult(overrides: Partial<ProjectScanResult> = {}): ProjectScanResu
       { name: 'Guest orders food', description: 'End to end checkout.', steps: ['Open site', 'Checkout'] },
     ],
     environmentNotes: ['Needs a MySQL connection.'],
-    environment: [{ name: 'Node.js', present: true, installHint: null, installableBinary: null }],
+    environment: [{ name: 'Node.js', present: true, installHint: null, installableBinary: null, installablePlaywrightBrowsers: false }],
     setup: null,
     generatedAt: '2026-03-10T09:00:00.000Z',
     ...overrides,
@@ -26,7 +26,7 @@ function scanResult(overrides: Partial<ProjectScanResult> = {}): ProjectScanResu
 }
 
 const bridge: Bridge = {
-  run: async () => ({ ok: true, result: scanResult() }),
+  run: async () => ({ ok: true, result: scanResult(), appliedTargetType: null }),
   getLast: async () => null,
 };
 
@@ -36,11 +36,6 @@ const fakeApi = {
     login: async () => ({ ok: false as const, error: 'INVALID_CREDENTIALS' as const }),
     register: async () => ({ ok: false as const, error: 'PROFILE_ALREADY_EXISTS' as const }),
     logout: async () => undefined,
-  },
-  onboarding: {
-    setRole: async () => {
-      throw new Error('not used by these tests');
-    },
   },
   session: {
     getCurrent: async () => null,
@@ -100,7 +95,7 @@ function transportFailure(): never {
 
 describe('useScanStore', () => {
   beforeEach(() => {
-    bridge.run = async () => ({ ok: true, result: scanResult() });
+    bridge.run = async () => ({ ok: true, result: scanResult(), appliedTargetType: null });
     bridge.getLast = async () => null;
     useScanStore.setState({
       projectId: null,
@@ -109,6 +104,7 @@ describe('useScanStore', () => {
       lastError: null,
       lastErrorDetail: null,
       transportFailed: false,
+      lastAppliedTargetType: null,
     });
   });
 
@@ -167,7 +163,7 @@ describe('useScanStore', () => {
   describe('run', () => {
     it('replaces the result with a fresh scan on success', async () => {
       const fresh = scanResult({ description: 'Freshly scanned.' });
-      bridge.run = async () => ({ ok: true, result: fresh });
+      bridge.run = async () => ({ ok: true, result: fresh, appliedTargetType: null });
 
       const ok = await useScanStore.getState().run('proj-1');
 
@@ -200,6 +196,22 @@ describe('useScanStore', () => {
       expect(ok).toBe(false);
       expect(useScanStore.getState().transportFailed).toBe(true);
     });
+
+    it('records the applied target type main sent back, for the caller to sync elsewhere', async () => {
+      bridge.run = async () => ({ ok: true, result: scanResult(), appliedTargetType: 'web' });
+
+      await useScanStore.getState().run('proj-1');
+
+      expect(useScanStore.getState().lastAppliedTargetType).toBe('web');
+    });
+
+    it('records null when main applied nothing', async () => {
+      bridge.run = async () => ({ ok: true, result: scanResult(), appliedTargetType: null });
+
+      await useScanStore.getState().run('proj-1');
+
+      expect(useScanStore.getState().lastAppliedTargetType).toBeNull();
+    });
   });
 
   it('clears the error and transport failure together', () => {
@@ -219,8 +231,8 @@ describe('useScanStore', () => {
         projectId: 'proj-1',
         result: scanResult({
           environment: [
-            { name: 'Node.js', present: true, installHint: null, installableBinary: null },
-            { name: 'PHP', present: false, installHint: 'Install PHP, then check again.', installableBinary: 'php' },
+            { name: 'Node.js', present: true, installHint: null, installableBinary: null, installablePlaywrightBrowsers: false },
+            { name: 'PHP', present: false, installHint: 'Install PHP, then check again.', installableBinary: 'php', installablePlaywrightBrowsers: false },
           ],
         }),
       });
@@ -229,8 +241,8 @@ describe('useScanStore', () => {
 
       const state = useScanStore.getState();
       expect(state.result?.environment).toEqual([
-        { name: 'Node.js', present: true, installHint: null, installableBinary: null },
-        { name: 'PHP', present: true, installHint: null, installableBinary: null },
+        { name: 'Node.js', present: true, installHint: null, installableBinary: null, installablePlaywrightBrowsers: false },
+        { name: 'PHP', present: true, installHint: null, installableBinary: null, installablePlaywrightBrowsers: false },
       ]);
     });
 
@@ -243,7 +255,7 @@ describe('useScanStore', () => {
 
     it('leaves every row alone when the binary does not match any of them', () => {
       const withPhp = scanResult({
-        environment: [{ name: 'PHP', present: false, installHint: 'Install PHP.', installableBinary: 'php' }],
+        environment: [{ name: 'PHP', present: false, installHint: 'Install PHP.', installableBinary: 'php', installablePlaywrightBrowsers: false }],
       });
       useScanStore.setState({ projectId: 'proj-1', result: withPhp });
 

@@ -25,11 +25,6 @@ const fakeApi = {
     register: async () => ({ ok: false as const, error: 'PROFILE_ALREADY_EXISTS' as const }),
     logout: async () => undefined,
   },
-  onboarding: {
-    setRole: async () => {
-      throw new Error('not used by these tests');
-    },
-  },
   session: {
     getCurrent: async () => null,
   },

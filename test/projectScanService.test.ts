@@ -105,7 +105,7 @@ describe('ProjectScanService.run', () => {
     projectRoot = mkdtempSync(join(tmpdir(), 'autoai-scan-project-'));
     projectRepository = new FakeProjectRepository();
     scanRepository = new FakeScanRepository();
-    environmentChecker = new FakeEnvironmentChecker([{ name: 'Node.js', present: true, installHint: null, installableBinary: null }]);
+    environmentChecker = new FakeEnvironmentChecker([{ name: 'Node.js', present: true, installHint: null, installableBinary: null, installablePlaywrightBrowsers: false }]);
 
     project = {
       id: 'proj-1',
@@ -180,7 +180,7 @@ describe('ProjectScanService.run', () => {
     expect(result.result.description).toBe(VALID_STRUCTURED_OUTPUT.description);
     expect(result.result.suggestedFlows).toEqual(VALID_STRUCTURED_OUTPUT.suggestedFlows);
     expect(result.result.environmentNotes).toEqual(VALID_STRUCTURED_OUTPUT.environmentNotes);
-    expect(result.result.environment).toEqual([{ name: 'Node.js', present: true, installHint: null, installableBinary: null }]);
+    expect(result.result.environment).toEqual([{ name: 'Node.js', present: true, installHint: null, installableBinary: null, installablePlaywrightBrowsers: false }]);
 
     expect(scanRepository.get(project.id)).toEqual(result.result);
   });
@@ -286,5 +286,86 @@ describe('ProjectScanService.run', () => {
     expect(environmentChecker.calls).toEqual([
       { targetType: 'web', projectRoot, startCommand: 'php -S localhost:8000 -t .', evidence: [] },
     ]);
+  });
+
+  describe('detectedTargetType auto-apply', () => {
+    // Mutates via the repository (not the local `project` object directly)
+    // so the service - which looks the project up fresh via
+    // projectRepository.find - actually sees the change.
+    function makeUnknownProject(): void {
+      const updated = projectRepository.update(project.id, { overriddenTargetType: null, detection: null });
+      if (updated) project = updated;
+    }
+
+    it('applies the scan\'s detected target type when nothing has settled on one yet', async () => {
+      makeUnknownProject();
+      const structuredOutput = { ...VALID_STRUCTURED_OUTPUT, detectedTargetType: 'web' };
+      const service = makeService(new FakeAgentRunner({ ok: true, text: '', structuredOutput }));
+
+      const result = await service.run(project.id);
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.appliedTargetType).toBe('web');
+      expect(projectRepository.find(project.id)?.overriddenTargetType).toBe('web');
+    });
+
+    it('uses the newly applied target type for the environment check in the same run', async () => {
+      makeUnknownProject();
+      const structuredOutput = { ...VALID_STRUCTURED_OUTPUT, detectedTargetType: 'desktop' };
+      const service = makeService(new FakeAgentRunner({ ok: true, text: '', structuredOutput }));
+
+      await service.run(project.id);
+
+      expect(environmentChecker.calls).toEqual([{ targetType: 'desktop', projectRoot, startCommand: null, evidence: [] }]);
+    });
+
+    it('never overwrites an existing manual override', async () => {
+      const updated = projectRepository.update(project.id, { overriddenTargetType: 'mobile' });
+      if (updated) project = updated;
+      const structuredOutput = { ...VALID_STRUCTURED_OUTPUT, detectedTargetType: 'web' };
+      const service = makeService(new FakeAgentRunner({ ok: true, text: '', structuredOutput }));
+
+      const result = await service.run(project.id);
+
+      expect(result.ok && result.appliedTargetType).toBeNull();
+      expect(projectRepository.find(project.id)?.overriddenTargetType).toBe('mobile');
+    });
+
+    it('never overwrites a confident existing detection, even without a manual override', async () => {
+      const updated = projectRepository.update(project.id, {
+        overriddenTargetType: null,
+        detection: { targetType: 'desktop', confidence: 'high', evidence: [], generatedAt: '2026-01-01T00:00:00.000Z' },
+      });
+      if (updated) project = updated;
+      const structuredOutput = { ...VALID_STRUCTURED_OUTPUT, detectedTargetType: 'web' };
+      const service = makeService(new FakeAgentRunner({ ok: true, text: '', structuredOutput }));
+
+      const result = await service.run(project.id);
+
+      expect(result.ok && result.appliedTargetType).toBeNull();
+      expect(projectRepository.find(project.id)?.overriddenTargetType).toBeNull();
+    });
+
+    it('applies nothing when the scan itself was not confident enough to propose a type', async () => {
+      makeUnknownProject();
+      const structuredOutput = { ...VALID_STRUCTURED_OUTPUT, detectedTargetType: null };
+      const service = makeService(new FakeAgentRunner({ ok: true, text: '', structuredOutput }));
+
+      const result = await service.run(project.id);
+
+      expect(result.ok && result.appliedTargetType).toBeNull();
+      expect(projectRepository.find(project.id)?.overriddenTargetType).toBeNull();
+    });
+
+    it('rejects an out-of-enum detectedTargetType as malformed output rather than applying it', async () => {
+      makeUnknownProject();
+      const structuredOutput = { ...VALID_STRUCTURED_OUTPUT, detectedTargetType: 'unknown' };
+      const service = makeService(new FakeAgentRunner({ ok: true, text: '', structuredOutput }));
+
+      const result = await service.run(project.id);
+
+      expect(result).toEqual({ ok: false, error: 'SCAN_FAILED', detail: 'Claude did not return the expected structured result.' });
+    });
   });
 });

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AuthErrorCode, LoginInput, RegisterInput, SessionState, UserRole } from '@shared/ipc-contract';
+import type { AuthErrorCode, LoginInput, RegisterInput, SessionState } from '@shared/ipc-contract';
 import { autoaiClient } from '../lib/autoaiClient';
 
 export type BootstrapStage = 'loading' | 'welcome' | 'needs-registration' | 'needs-login' | 'ready';
@@ -26,7 +26,6 @@ interface SessionStoreState {
   register: (input: RegisterInput) => Promise<boolean>;
   login: (input: LoginInput) => Promise<boolean>;
   logout: () => Promise<void>;
-  setRole: (role: UserRole) => Promise<void>;
   clearError: () => void;
 }
 
@@ -82,11 +81,6 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
   logout: async () => {
     await autoaiClient.auth.logout();
     set({ session: null, stage: 'needs-login', lastError: null });
-  },
-
-  setRole: async (role) => {
-    const result = await autoaiClient.onboarding.setRole(role);
-    set({ session: result.session, stage: stageFor(true, result.session) });
   },
 
   clearError: () => set({ lastError: null }),

@@ -8,47 +8,11 @@
  * see PasswordHasher in main/services for where it gets hashed and dropped.
  */
 
-export const UserRole = {
-  ManualTester: 'manual_tester',
-  AutomationEngineer: 'automation_engineer',
-  QaLead: 'qa_lead',
-} as const;
-
-export type UserRole = (typeof UserRole)[keyof typeof UserRole];
-
-export interface RoleOption {
-  readonly role: UserRole;
-  readonly title: string;
-  readonly description: string;
-}
-
-export const ROLE_OPTIONS: readonly RoleOption[] = [
-  {
-    role: UserRole.ManualTester,
-    title: 'Manual QA Tester',
-    description:
-      "I test by hand today and want AutoAI to turn what I already do into automated runs.",
-  },
-  {
-    role: UserRole.AutomationEngineer,
-    title: 'Automation Engineer',
-    description:
-      'I write and maintain automated tests and want direct control over configuration and code.',
-  },
-  {
-    role: UserRole.QaLead,
-    title: 'QA Lead',
-    description:
-      "I plan coverage and review results across a team's automation, more than writing tests myself.",
-  },
-];
-
 /** Public-safe view of a local profile. Never includes password material. */
 export interface SessionState {
   readonly id: string;
   readonly name: string;
   readonly email: string;
-  readonly role: UserRole | null;
 }
 
 export interface RegisterInput {
@@ -73,11 +37,6 @@ export type AuthErrorCode =
   | 'WEAK_PASSWORD'
   | 'INVALID_EMAIL'
   | 'NAME_REQUIRED';
-
-export interface OnboardingResult {
-  readonly ok: true;
-  readonly session: SessionState;
-}
 
 // ---------------------------------------------------------------------------
 // Projects: importing a target codebase and detecting what kind of app it is
@@ -396,6 +355,39 @@ export type SystemToolInstallResult =
   | { readonly ok: false; readonly error: SystemToolInstallErrorCode; readonly detail?: string };
 
 // ---------------------------------------------------------------------------
+// Playwright browser install: AutoAI installing its own test-runner
+// dependency's browsers, via one literal, hardcoded `npx playwright
+// install` run from AutoAI's own app directory - never a target project's.
+// Simpler than SystemToolInstaller: no third-party package manager, no
+// binary name to choose - see PlaywrightBrowserInstaller.
+// ---------------------------------------------------------------------------
+
+export type PlaywrightBrowserInstallErrorCode = 'INSTALL_FAILED';
+
+export type PlaywrightBrowserInstallResult =
+  | { readonly ok: true; readonly nowPresent: boolean; readonly output: string }
+  | { readonly ok: false; readonly error: PlaywrightBrowserInstallErrorCode; readonly detail?: string };
+
+// ---------------------------------------------------------------------------
+// URL actions: once AutoAI knows a project's URL (manually set, or
+// auto-filled after Setup starts a server), two small, read-only,
+// non-destructive things a person can do with it - open it in the OS
+// browser, or check whether anything is actually listening there yet. See
+// UrlOpener / UrlReachabilityChecker.
+// ---------------------------------------------------------------------------
+
+export type UrlOpenErrorCode = 'INVALID_URL' | 'OPEN_FAILED';
+
+export type UrlOpenResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly error: UrlOpenErrorCode; readonly detail?: string };
+
+export interface UrlReachabilityResult {
+  readonly reachable: boolean;
+  readonly status: number | null;
+}
+
+// ---------------------------------------------------------------------------
 // Project scan: Claude reads a project with its own Read/Grep/Glob tools and
 // hands back a plain-language read plus suggested test flows; folded
 // together with a deterministic, local "what's missing to run tests" check.
@@ -431,6 +423,13 @@ export interface EnvironmentCheckItem {
    *  back; anything else has no one-click path and stays instruction-only,
    *  same as before this existed. */
   readonly installableBinary: string | null;
+  /** True only for the "Playwright browsers" item when missing - AutoAI's
+   *  own test-runner dependency, installed via PlaywrightBrowserInstaller
+   *  (`npx playwright install`, run from AutoAI's own directory), never a
+   *  target project's. A separate flag rather than folded into
+   *  `installableBinary` because the mechanism is different (no brew
+   *  formula, no target binary name - just one fixed command). */
+  readonly installablePlaywrightBrowsers: boolean;
 }
 
 /** What Claude proposes to actually get this project running, grounded the
@@ -469,7 +468,21 @@ export interface ProjectScanResult {
 export type ScanErrorCode = 'NOT_CONNECTED' | 'PROJECT_NOT_FOUND' | 'SCAN_FAILED';
 
 export type ScanRunResult =
-  | { readonly ok: true; readonly result: ProjectScanResult }
+  | {
+      readonly ok: true;
+      readonly result: ProjectScanResult;
+      /** Non-null only when the scan's own read of the project was
+       *  confident enough to propose a target type AND ProjectScanService
+       *  actually applied it (the project was still Unknown and
+       *  unoverridden) - main already persisted this; the renderer uses it
+       *  only to sync its own copy of the project, same "write, then read
+       *  back what main actually stored" pattern `ProjectSetupCard` uses
+       *  for `baseUrlAutoFilled`. Not part of `ProjectScanResult` itself -
+       *  re-opening an old scan re-showing a stale "detected type" note
+       *  would be confusing; only the effect (`project.overriddenTargetType`)
+       *  persists. */
+      readonly appliedTargetType: TargetType | null;
+    }
   | { readonly ok: false; readonly error: ScanErrorCode; readonly detail?: string };
 
 // ---------------------------------------------------------------------------
@@ -606,7 +619,6 @@ export const IpcChannel = {
   AuthRegister: 'auth:register',
   AuthLogin: 'auth:login',
   AuthLogout: 'auth:logout',
-  OnboardingSetRole: 'onboarding:set-role',
   SessionGetCurrent: 'session:get-current',
   ProjectsAddFromGit: 'projects:add-from-git',
   ProjectsAddFromLocalPath: 'projects:add-from-local-path',
@@ -640,6 +652,9 @@ export const IpcChannel = {
   McpServersAdd: 'mcp-servers:add',
   McpServersRemove: 'mcp-servers:remove',
   SystemToolInstall: 'system-tool:install',
+  PlaywrightBrowsersInstall: 'playwright-browsers:install',
+  SystemOpenUrl: 'system:open-url',
+  SystemCheckUrlReachable: 'system:check-url-reachable',
 } as const;
 
 export type IpcChannel = (typeof IpcChannel)[keyof typeof IpcChannel];
@@ -651,9 +666,6 @@ export interface AutoaiApi {
     register: (input: RegisterInput) => Promise<AuthResult>;
     login: (input: LoginInput) => Promise<AuthResult>;
     logout: () => Promise<void>;
-  };
-  onboarding: {
-    setRole: (role: UserRole) => Promise<OnboardingResult>;
   };
   session: {
     getCurrent: () => Promise<SessionState | null>;
@@ -726,5 +738,19 @@ export interface AutoaiApi {
     /** `binary` must be on SystemToolInstaller's closed allowlist - checked
      *  again in main regardless of what the renderer sends. */
     install: (binary: string) => Promise<SystemToolInstallResult>;
+  };
+  playwrightBrowsers: {
+    /** No input - runs the one fixed `npx playwright install` command from
+     *  AutoAI's own app directory. See PlaywrightBrowserInstaller. */
+    install: () => Promise<PlaywrightBrowserInstallResult>;
+  };
+  url: {
+    /** Opens `url` in the OS default browser - refused server-side unless
+     *  the scheme is http(s). See UrlOpener. */
+    open: (url: string) => Promise<UrlOpenResult>;
+    /** A plain reachability ping (no LLM, no Playwright browser) - "is
+     *  anything even listening", not a test run. See
+     *  UrlReachabilityChecker. */
+    checkReachable: (url: string) => Promise<UrlReachabilityResult>;
   };
 }
